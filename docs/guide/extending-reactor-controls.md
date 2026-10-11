@@ -465,6 +465,16 @@ contract:
 | Hierarchical tree | `TreeChildren(GetNodes)` |
 | Tabs / pivots with per-item containers | `TabItemsHost(GetItems, GetCollection, GetContent, CreateContainer)` |
 
+For a writable managed `IList<object> Items` sink, also supply
+`ItemsHost.SetCollection = static (c, items) => c.Items = items` so a
+non-notifying list becomes an observable collection at mount. Generated
+wrappers provide this automatically. Element items reconcile incrementally
+and preserve keyed control identity; see
+[Dynamic flat items](control-reconciler-protocol.md#dynamic-flat-items).
+Secondary Element slots can own their teardown through
+`.ImperativeBridged(mount, update, unmount)`; `[WrapElementSlot]` generates
+that binding automatically.
+
 The standard strategies cover everything in the built-in catalog. The
 `Imperative<TElement, TControl>` escape hatch exists for the case
 where none of them fit — for example, a control whose children live

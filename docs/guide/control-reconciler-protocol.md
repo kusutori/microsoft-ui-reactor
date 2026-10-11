@@ -305,7 +305,7 @@ public TControl Mount(MountContext ctx, TElement el)
     // only for elements that carry callbacks, a key, extensions, or reference modifiers.
     // Without this, OnUnmount would fire for some elements of a type and silently not for
     // others — the callback-free ones — which is not a contract an author can reason about.
-    if (_descriptor.OnUnmount is not null)
+    if (_descriptor.OnUnmount is not null || _descriptor.Properties.Any(static p => p.HasUnmount))
         Reconciler.GetOrCreateReactorState(ctrl);
 
     // §14 Phase 3-final: when the descriptor declares an ItemsHost,
@@ -507,6 +507,39 @@ component state across reorderings that do not change identity;
 strategy is a Reactor-internals task; adding a new handler that
 *consumes* one of these strategies is what extension authors do.
 
+### Dynamic flat items
+
+`ItemsHost` reconciles Element items against their mounted controls: keyed
+items retain their identity across moves, while unkeyed elements match by
+source position. Descendants are visited even when the source list is the
+same instance, so a child component's own state can update. Raw values use
+`ItemEquals` (or `object.Equals`); this comparison does not skip Element
+descendants. Insertions and removals update the sink incrementally rather
+than clearing and rebuilding it. Removed Element controls are detached
+before teardown, and the host owns their terminal unmount.
+
+For a managed control with a writable `IList<object> Items` property,
+provide the optional `SetCollection` callback:
+
+```csharp
+Children = new ItemsHost<MyElement, MyControl>(
+    GetItems: static e => e.Items,
+    GetCollection: static c => c.Items)
+{
+    SetCollection = static (c, items) => c.Items = items,
+},
+```
+
+On mount, a non-notifying sink is replaced with an
+`ObservableCollection<object>`; an existing notifying sink is retained.
+The collection then remains stable, and observable moves use `Move` rather
+than `Reset`. This lets controls that forward `Items` to an `ItemsRepeater`
+(such as WCT `SettingsExpander`) realize dynamic children. Generated
+wrappers supply this callback for public, writable `IList<object>`
+properties. Read-only and concrete native `ItemCollection` properties
+keep their existing sink. The framework supplies the WinRT exposure for
+its observable list, including indirect Native AOT collection boundaries.
+
 ## Pool integration
 
 The descriptor's `PoolPolicy` (and the corresponding parameter to
@@ -668,6 +701,14 @@ hatches a hand-coded handler would otherwise need:
 | `.OneWayBridged(get, set, shouldWrite)` | One-way prop whose `set` lambda needs access to the reconciler (used by the button-family flyout port). |
 | `.Imperative(mount, update)` | Property-level escape hatch — the lambdas receive `(control, element)` and `(control, oldEl, newEl)` so an entry can express a diff the standard builders cannot. |
 | `.ImperativeBridged(mount, update)` | Same shape with the `MountContext` / `UpdateContext` available — primary use is a secondary Element slot that needs structural reconcile via `ReconcileV1Child`. |
+| `.ImperativeBridged(mount, update, unmount)` | Adds property-owned teardown with an `UnmountContext`; use it to detach and unmount a secondary Element slot. The two-callback overload remains available. |
+
+Property-owned `unmount` callbacks run before the descriptor's `OnUnmount`,
+independently of that callback. Detach an owned slot from its native parent
+before calling `ctx.Reconciler.UnmountChild(child)`. Generated
+`[WrapElementSlot]` bindings do this automatically on terminal unmount;
+they leave constructor-owned defaults alone when no Element slot was
+declared. Do not also unmount the same slot in the descriptor callback.
 
 The entries iterate as a flat list, in declaration order. The
 descriptor's children strategy runs first when it is an items binder
