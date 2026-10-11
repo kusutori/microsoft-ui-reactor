@@ -799,6 +799,8 @@ public sealed partial class Reconciler : IDisposable
         // ops translate into container-level animations rather than full
         // re-realization.
         public Internal.ReactorListState? ListState;
+        // Flat ItemsHost children, including the real controls needed for teardown.
+        public V1Protocol.ItemsHostState? ItemsHostState;
 
         // Spec 047 §14 Phase 3 close-out — descriptor-side per-index view
         // source. Populated by Reconciler.BindKeyedItemsSource when a
@@ -855,7 +857,7 @@ public sealed partial class Reconciler : IDisposable
                 new PropertyMetadata(null));
     }
 
-    internal static ReactorState GetOrCreateReactorState(FrameworkElement fe)
+    internal static ReactorState GetOrCreateReactorState(UIElement fe)
     {
         if (fe.GetValue(ReactorAttached.StateProperty) is ReactorState state)
             return state;

@@ -458,6 +458,17 @@ public sealed class ControlDescriptor<TElement, TControl>
         return this;
     }
 
+    /// <summary>Engine-bridged entry with terminal teardown, for owned secondary
+    /// Element slots. Runs independently of the descriptor's OnUnmount hook.</summary>
+    public ControlDescriptor<TElement, TControl> ImperativeBridged(
+        Action<MountContext, TControl, TElement> mount,
+        Action<UpdateContext, TControl, TElement, TElement> update,
+        Action<UnmountContext, TControl> unmount)
+    {
+        _properties.Add(new ImperativeBridgedPropEntry<TElement, TControl>(mount, update, unmount));
+        return this;
+    }
+
     /// <summary>§14 Phase 3-final — engine-bridged one-way property. Same
     /// diff-and-write contract as <see cref="OneWayConditional{TValue}"/>,
     /// but the set lambda receives the <see cref="Reconciler"/> and the

@@ -1812,6 +1812,7 @@ internal static class SelfTestFixtureRegistry
         "RadioButtonWrapper_Parity",
         "StackPanelWrapper_Parity",
         "ListBoxWrapper_Parity",
+        "ItemsHost_Observable_Keyed_Lifecycle",
         "ProgressBarValue",
 
         // Spec 047 §4.3 — EventHandlerState split (§9.2) contract fixtures.
@@ -3841,6 +3842,7 @@ internal static class SelfTestFixtureRegistry
         "RadioButtonWrapper_Parity" => new RadioButtonWrapperParityFixture.Execution(harness),
         "StackPanelWrapper_Parity" => new StackPanelWrapperParityFixture.Execution(harness),
         "ListBoxWrapper_Parity" => new ListBoxWrapperParityFixture.Execution(harness),
+        "ItemsHost_Observable_Keyed_Lifecycle" => new ItemsHostReconciliationFixture.Execution(harness),
         "ProgressBarValue" => new ProgressBarValueFixture.Execution(harness),
 
         // Spec 047 §4.3 — EventHandlerState split (§9.2) contract fixtures.
