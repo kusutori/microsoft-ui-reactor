@@ -10,96 +10,153 @@ namespace Microsoft.UI.Reactor.Core.V1Protocol;
 
 internal sealed class ItemsHostState
 {
-    internal sealed record Item(object? Source, object? Value);
+    internal readonly record struct Item(object? Source, object? Value);
     internal List<Item> Items { get; set; } = new();
+    internal IReadOnlyList<object>? Source { get; set; }
+    internal bool HasElements { get; set; }
 }
 
 /// <summary>Shared flat-items lifecycle for descriptors and hand-coded handlers.</summary>
 internal static class ItemsHostReconciliation
 {
+    // WinRT can recreate a managed wrapper while the native control and its Items
+    // remain alive. Root reconciliation state on that native control, not in a
+    // wrapper-keyed weak table: losing the old state would append the items again.
+    // A separate attached property avoids enlarging ReactorState for every control.
+    private static readonly DependencyProperty StateProperty =
+        DependencyProperty.RegisterAttached(
+            "ReactorItemsHostState", typeof(ItemsHostState),
+            typeof(ItemsHostReconciliation), new PropertyMetadata(null));
+
     internal static void Bind<TElement, TControl>(
         ItemsHost<TElement, TControl> strategy, TElement element, TControl control,
         Reconciler reconciler, Action requestRerender, bool isMount)
         where TElement : Element
         where TControl : UIElement
     {
-        var state = Reconciler.GetOrCreateReactorState(control);
-        // Hand-coded handlers dispatch children after the adapter's initial tag
-        // pass. Root this host too, so callback-free parents receive teardown.
-        state.Element = element;
-        var collection = strategy.GetCollection(control);
+        IList<object>? collection = null;
         if (isMount)
         {
+            // Hand-coded handlers dispatch children after the adapter's initial tag
+            // pass, so callback-free hosts must be rooted here too.
+            Reconciler.GetOrCreateReactorState(control).Element = element;
+            collection = strategy.GetCollection(control);
             if (strategy.SetCollection is { } set && collection is not INotifyCollectionChanged)
             {
                 collection = new ObservableCollection<object>();
                 set(control, collection);
             }
             else if (collection.Count > 0)
-                collection.Clear();
-            state.ItemsHostState = new ItemsHostState();
+                ClearSuppressed(control, collection);
+            control.SetValue(StateProperty, new ItemsHostState());
         }
 
-        var itemsState = state.ItemsHostState ??= new ItemsHostState();
+        var itemsState = control.GetValue(StateProperty) as ItemsHostState
+            ?? throw new InvalidOperationException("ItemsHost state is missing for a mounted control.");
         var previous = itemsState.Items;
-        var used = new bool[previous.Count];
         var source = strategy.GetItems(element);
-        var next = new List<ItemsHostState.Item>(source.Count);
         var equals = strategy.ItemEquals ?? object.Equals;
-        var keyed = new Dictionary<string, Queue<int>>(StringComparer.Ordinal);
+        // Raw values have no descendant state/context. Retain the legacy same-source no-op.
+        if (!isMount && !itemsState.HasElements && ReferenceEquals(itemsState.Source, source))
+            return;
+
+        if (!isMount && !itemsState.HasElements &&
+            TryUpdateRawInPlace(strategy, control, itemsState, source, equals))
+            return;
+
+        collection ??= strategy.GetCollection(control);
+
+        if (!isMount && MatchesInPlace(previous, source, equals))
+        {
+            int target = 0;
+            for (int i = 0; i < source.Count; i++)
+            {
+                var old = previous[i];
+                var item = source[i];
+                var value = old.Value;
+                if (item is Element child)
+                {
+                    // Even identical Element records can contain dirty components or context consumers.
+                    // ReconcileV1Child owns type replacement and Hot Reload migration.
+                    value = reconciler.ReconcileV1Child(old.Source as Element, child,
+                        old.Value as UIElement, requestRerender);
+                    if (!ReferenceEquals(old.Value, value))
+                    {
+                        if (old.Value is null)
+                        {
+                            if (value is not null) collection.Insert(target, value);
+                        }
+                        else if (value is null)
+                            collection.RemoveAt(target);
+                        else
+                            collection[target] = value;
+                    }
+                }
+                // Positionally equal raw-only lists keep their old values, as before this change.
+                previous[i] = new(item, value);
+                if (value is not null) target++;
+            }
+            itemsState.Source = source;
+            return;
+        }
+
+        var used = new bool[previous.Count];
+        var next = new List<ItemsHostState.Item>(source.Count);
+        Dictionary<string, Queue<int>>? keyed = null;
         for (int i = 0; i < previous.Count; i++)
         {
             if (previous[i].Source is Element { Key: { } key })
             {
+                keyed ??= new(StringComparer.Ordinal);
                 if (!keyed.TryGetValue(key, out var indices))
                     keyed[key] = indices = new Queue<int>();
                 indices.Enqueue(i);
             }
         }
 
+        bool hasElements = false;
         for (int i = 0; i < source.Count; i++)
         {
             var item = source[i];
             int match = -1;
             if (item is Element child)
             {
+                hasElements = true;
                 if (child.Key is { } key)
                 {
-                    if (keyed.TryGetValue(key, out var indices) && indices.Count > 0)
+                    if (keyed is not null && keyed.TryGetValue(key, out var indices) && indices.Count > 0)
                         match = indices.Dequeue();
                 }
                 else if (i < previous.Count && !used[i] && previous[i].Source is Element { Key: null })
                     match = i;
 
-                var old = match < 0 ? null : previous[match];
+                var old = match < 0 ? default : previous[match];
                 if (match >= 0) used[match] = true;
-                var existing = old?.Value as UIElement;
-                if (old?.Source is Element oldElement && !reconciler.CanUpdate(oldElement, child))
-                {
-                    // Detach before teardown: pooling must not rent a still-parented control.
-                    RemoveReference(collection, existing);
-                    if (existing is not null) reconciler.UnmountChild(existing);
-                    existing = null;
-                    old = null;
-                }
-                // Do not equality-skip this descent: an unchanged child Element can
-                // contain a component whose own state or inherited context changed.
-                var mounted = reconciler.ReconcileV1Child(old?.Source as Element, child, existing, requestRerender);
+                var existing = old.Value as UIElement;
+                var mounted = reconciler.ReconcileV1Child(old.Source as Element, child, existing, requestRerender);
                 if (!ReferenceEquals(existing, mounted)) RemoveReference(collection, existing);
                 next.Add(new(item, mounted));
             }
             else
             {
-                for (int j = 0; j < previous.Count; j++)
+                if (i < previous.Count && !used[i] && previous[i].Source is not Element
+                    && equals(previous[i].Source, item))
+                    match = i;
+                else
+                    for (int j = 0; j < previous.Count; j++)
+                        if (!used[j] && previous[j].Source is not Element && equals(previous[j].Source, item))
+                        {
+                            match = j;
+                            break;
+                        }
+                if (match >= 0)
                 {
-                    if (!used[j] && previous[j].Source is not Element && equals(previous[j].Source, item))
-                    {
-                        match = j;
-                        break;
-                    }
+                    used[match] = true;
+                    // A structural update writes the new raw object, not an old Id-equal instance.
+                    if (!ReferenceEquals(previous[match].Value, item))
+                        RemoveReference(collection, previous[match].Value);
                 }
-                if (match >= 0) used[match] = true;
-                next.Add(new(item, match < 0 ? item : previous[match].Value));
+                next.Add(new(item, item));
             }
         }
 
@@ -107,33 +164,113 @@ internal static class ItemsHostReconciliation
         {
             if (used[i]) continue;
             var old = previous[i];
-            RemoveReference(collection, old.Value);
+            // Teardown must see a parented child (e.g. connected-animation snapshots).
             if (old.Source is Element && old.Value is UIElement child)
                 reconciler.UnmountChild(child);
+            RemoveReference(collection, old.Value);
         }
 
-        int target = 0;
+        int placement = 0;
         foreach (var item in next)
         {
             if (item.Value is not { } value) continue;
-            if (target < collection.Count && ReferenceEquals(collection[target], value))
+            if (placement < collection.Count && ReferenceEquals(collection[placement], value))
             {
-                target++;
+                placement++;
                 continue;
             }
-            int current = IndexOfReference(collection, value, target);
+            int current = IndexOfReference(collection, value, placement);
             if (current < 0)
-                collection.Insert(target, value);
+                collection.Insert(placement, value);
             else if (collection is ObservableCollection<object> observable)
-                observable.Move(current, target);
+                observable.Move(current, placement);
             else
             {
                 collection.RemoveAt(current);
-                collection.Insert(target, value);
+                collection.Insert(placement, value);
             }
-            target++;
+            placement++;
         }
         itemsState.Items = next;
+        itemsState.Source = source;
+        itemsState.HasElements = hasElements;
+    }
+
+    private static bool TryUpdateRawInPlace<TElement, TControl>(
+        ItemsHost<TElement, TControl> strategy, TControl control, ItemsHostState state,
+        IReadOnlyList<object> source, Func<object?, object?, bool> equals)
+        where TElement : Element
+        where TControl : UIElement
+    {
+        int count = source.Count;
+        var previous = state.Items;
+        if (previous.Count != count) return false;
+        bool same = RawItemsEqual(state.Source!, source, equals);
+        if (!same)
+        {
+            for (int i = 0; i < count; i++)
+                if (source[i] is Element) return false;
+            var collection = strategy.GetCollection(control);
+            int target = 0;
+            for (int i = 0; i < count; i++)
+            {
+                var old = previous[i].Value;
+                var item = source[i];
+                // Immutable equal values need no native write. Id-equal objects whose
+                // payload changed still replace the old instance on a changed list.
+                var value = object.Equals(old, item) ? old : item;
+                if (!ReferenceEquals(old, value))
+                {
+                    if (old is null)
+                    {
+                        if (value is not null) collection.Insert(target, value);
+                    }
+                    else if (value is null)
+                        collection.RemoveAt(target);
+                    else
+                        collection[target] = value;
+                }
+                previous[i] = new(item, value);
+                if (value is not null) target++;
+            }
+        }
+        // Equal raw lists have no descendants, allocations or native collection reads.
+        state.Source = source;
+        return true;
+    }
+
+    private static bool RawItemsEqual(IReadOnlyList<object> oldSource,
+        IReadOnlyList<object> source, Func<object?, object?, bool> equals)
+    {
+        int count = source.Count;
+        // Arrays are the generated factory's common input. Avoid covariant
+        // IReadOnlyList interface dispatch for each raw value on this hot path.
+        if (oldSource is object[] oldArray && source is object[] array)
+        {
+            for (int i = 0; i < count; i++)
+                if (array[i] is Element || !equals(oldArray[i], array[i])) return false;
+        }
+        else
+            for (int i = 0; i < count; i++)
+                if (source[i] is Element || !equals(oldSource[i], source[i])) return false;
+        return true;
+    }
+
+    private static bool MatchesInPlace(List<ItemsHostState.Item> previous, IReadOnlyList<object> source,
+        Func<object?, object?, bool> equals)
+    {
+        if (previous.Count != source.Count) return false;
+        for (int i = 0; i < source.Count; i++)
+        {
+            var old = previous[i].Source;
+            if (source[i] is Element child)
+            {
+                if (old is not Element oldChild || oldChild.Key != child.Key) return false;
+            }
+            else if (old is Element || !equals(old, source[i]))
+                return false;
+        }
+        return true;
     }
 
     internal static void Unbind<TElement, TControl>(
@@ -141,14 +278,22 @@ internal static class ItemsHostReconciliation
         where TElement : Element
         where TControl : UIElement
     {
-        var state = Reconciler.GetOrCreateReactorState(control);
-        var items = state.ItemsHostState;
-        state.ItemsHostState = null;
-        strategy.GetCollection(control).Clear();
-        if (items is null) return;
-        foreach (var item in items.Items)
-            if (item.Source is Element && item.Value is UIElement child)
+        if (control.GetValue(StateProperty) is not ItemsHostState items) return;
+        control.ClearValue(StateProperty);
+        for (int i = 0; i < items.Items.Count; i++)
+            if (items.Items[i] is { Source: Element, Value: UIElement child })
                 reconciler.UnmountChild(child);
+        ClearSuppressed(control, strategy.GetCollection(control));
+    }
+
+    private static void ClearSuppressed(UIElement control, IList<object> collection)
+    {
+        // Terminal cleanup is not a user selection. Use the same scoped suppression
+        // as ApplySetters, with no one-shot token left to swallow a future event.
+        var state = Reconciler.GetOrCreateReactorState(control);
+        state.EchoSuppressScopeDepth++;
+        try { collection.Clear(); }
+        finally { state.EchoSuppressScopeDepth--; }
     }
 
     private static int IndexOfReference(IList<object> collection, object value, int start)

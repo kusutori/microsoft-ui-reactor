@@ -1722,8 +1722,8 @@ public sealed class WrapperGenerator : IIncrementalGenerator
                 sb.AppendLine("            {");
                 sb.AppendLine($"                if ({Reconciler}.GetElementTag(c) is not {elementName} {{ {slot.Name}: not null }}) return;");
                 sb.AppendLine($"                var __child = c.{slot.ControlProp} as {UIElement};");
-                sb.AppendLine($"                c.{slot.ControlProp} = null!;");
                 sb.AppendLine("                if (__child is not null) ctx.Reconciler.UnmountChild(__child);");
+                sb.AppendLine($"                c.{slot.ControlProp} = null!;");
                 sb.Append("            })");
             }
         sb.AppendLine(";");

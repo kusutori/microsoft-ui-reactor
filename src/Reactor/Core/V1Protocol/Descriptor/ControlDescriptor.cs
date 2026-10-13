@@ -438,7 +438,11 @@ public sealed class ControlDescriptor<TElement, TControl>
     /// <c>ctx.Reconciler.ReconcileV1Child</c> for an Element slot that
     /// must preserve descendant component state across re-renders.
     ///
-    /// <para><b>Canonical use:</b> a secondary Element slot on a control
+    /// <para>For an owned secondary Element slot, use
+    /// <see cref="ImperativeBridged(Action{MountContext,TControl,TElement},Action{UpdateContext,TControl,TElement,TElement},Action{UnmountContext,TControl})"/>
+    /// so the mounted child also receives terminal teardown. This overload
+    /// is for bindings that do not own child lifetime.</para>
+    /// <para>A secondary Element slot on a control
     /// whose primary <see cref="ChildrenStrategy{TElement,TControl}"/> is
     /// taken by something else — e.g. <c>Expander.HeaderTemplate</c>
     /// where the primary <c>Children</c> is the <c>Content</c> slot and
@@ -459,7 +463,10 @@ public sealed class ControlDescriptor<TElement, TControl>
     }
 
     /// <summary>Engine-bridged entry with terminal teardown, for owned secondary
-    /// Element slots. Runs independently of the descriptor's OnUnmount hook.</summary>
+    /// Element slots. Unmount the child while it is still parented, then detach it.
+    /// The callback runs before, and independently of, the descriptor's
+    /// <see cref="OnUnmount"/> hook. Declaring this callback roots a ReactorState
+    /// per control, including keyless controls without element callbacks.</summary>
     public ControlDescriptor<TElement, TControl> ImperativeBridged(
         Action<MountContext, TControl, TElement> mount,
         Action<UpdateContext, TControl, TElement, TElement> update,

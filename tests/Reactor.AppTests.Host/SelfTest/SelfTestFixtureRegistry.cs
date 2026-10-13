@@ -1813,6 +1813,11 @@ internal static class SelfTestFixtureRegistry
         "StackPanelWrapper_Parity",
         "ListBoxWrapper_Parity",
         "ItemsHost_Observable_Keyed_Lifecycle",
+        "ItemsHost_SameArray_Context",
+        "ItemsHost_NativeItems_Selection",
+        "ItemsHost_Unkeyed_Type_Pool",
+        "ItemsHost_Slot_Rooting_Defaults",
+        "ItemsHost_HandHandler_RawEquality",
         "ProgressBarValue",
 
         // Spec 047 §4.3 — EventHandlerState split (§9.2) contract fixtures.
@@ -3843,6 +3848,11 @@ internal static class SelfTestFixtureRegistry
         "StackPanelWrapper_Parity" => new StackPanelWrapperParityFixture.Execution(harness),
         "ListBoxWrapper_Parity" => new ListBoxWrapperParityFixture.Execution(harness),
         "ItemsHost_Observable_Keyed_Lifecycle" => new ItemsHostReconciliationFixture.Execution(harness),
+        "ItemsHost_SameArray_Context" => new ItemsHostEdgeCasesFixtures.SameArrayContext(harness),
+        "ItemsHost_NativeItems_Selection" => new ItemsHostEdgeCasesFixtures.NativeItemsAndSelection(harness),
+        "ItemsHost_Unkeyed_Type_Pool" => new ItemsHostEdgeCasesFixtures.UnkeyedTypeAndPool(harness),
+        "ItemsHost_Slot_Rooting_Defaults" => new ItemsHostEdgeCasesFixtures.SlotRootingAndDefaults(harness),
+        "ItemsHost_HandHandler_RawEquality" => new ItemsHostEdgeCasesFixtures.HandHandlerAndRawEquality(harness),
         "ProgressBarValue" => new ProgressBarValueFixture.Execution(harness),
 
         // Spec 047 §4.3 — EventHandlerState split (§9.2) contract fixtures.

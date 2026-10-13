@@ -473,7 +473,10 @@ and preserve keyed control identity; see
 [Dynamic flat items](control-reconciler-protocol.md#dynamic-flat-items).
 Secondary Element slots can own their teardown through
 `.ImperativeBridged(mount, update, unmount)`; `[WrapElementSlot]` generates
-that binding automatically.
+that binding automatically. Unmount the owned child while it is still
+parented, then detach it. Property teardown runs before the descriptor's
+own `OnUnmount`; an undeclared generated slot leaves the control's
+constructor default untouched.
 
 The standard strategies cover everything in the built-in catalog. The
 `Imperative<TElement, TControl>` escape hatch exists for the case

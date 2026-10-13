@@ -66,8 +66,17 @@ internal static class ItemsHostReconciliationFixture
     {
         public override async Task RunAsync()
         {
+            // This code-only selftest Application does not inherit the host's generated
+            // XAML provider. Root Toolkit metadata explicitly for native template loading.
+            ReactorApp.RegisterControlAssembly(new global::CommunityToolkit.WinUI.Controls.SettingsControlsRns.
+                CommunityToolkit_WinUI_Controls_SettingsControls_XamlTypeInfo.XamlMetaDataProvider());
             var probe = new Probe();
             using var host = H.CreateHost();
+            host.RenderErrorHandler = error =>
+            {
+                Console.Error.WriteLine($"ItemsHost render error: {error.Exception}");
+                return null;
+            };
             host.Mount(_ => Component<Root, Probe>(probe));
             await Harness.Render();
             await Harness.WaitFor(() => H.FindControl<SettingsExpander>(_ => true) is not null, 30, 25);
@@ -84,12 +93,14 @@ internal static class ItemsHostReconciliationFixture
 
             H.ClickButton("A:0");
             await Harness.Render();
-            H.Check("ItemsHost_SelfState", await Harness.WaitFor(() => button.Content as string == "A:1"));
+            H.Check("ItemsHost_SelfState", await Harness.WaitFor(() =>
+                ReferenceEquals(button, H.FindControl<Button>(c => c.Content as string == "A:1"))));
             H.Check("ItemsHost_NoMutationsForSelfState", notifications.Count == 0);
 
             probe.SetEnabled(false);
             await Harness.Render();
-            H.Check("ItemsHost_DescendantProp", await Harness.WaitFor(() => !button.IsEnabled));
+            H.Check("ItemsHost_DescendantProp", await Harness.WaitFor(() =>
+                ReferenceEquals(button, H.FindControl<Button>(c => c.Content as string == "A:1" && !c.IsEnabled))));
             H.Check("ItemsHost_IdentityAndNoReset", ReferenceEquals(a, collection[0]) && notifications.Count == 0);
 
             probe.SetItems(new[] { "B", "A", "C" });
@@ -98,7 +109,8 @@ internal static class ItemsHostReconciliationFixture
             H.Check("ItemsHost_KeyedMoveIdentity", ReferenceEquals(b, collection[0]) && ReferenceEquals(a, collection[1]));
             H.Check("ItemsHost_MoveNotification", notifications.Contains(NotifyCollectionChangedAction.Move));
             H.Check("ItemsHost_NoResetNotification", !notifications.Contains(NotifyCollectionChangedAction.Reset));
-            H.Check("ItemsHost_StateSurvivesMove", button.Content as string == "A:1");
+            H.Check("ItemsHost_StateSurvivesMove",
+                ReferenceEquals(button, H.FindControl<Button>(c => c.Content as string == "A:1")));
 
             probe.SetItems(new[] { "A", "C" });
             await Harness.Render();

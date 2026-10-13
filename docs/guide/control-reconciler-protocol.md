@@ -305,7 +305,7 @@ public TControl Mount(MountContext ctx, TElement el)
     // only for elements that carry callbacks, a key, extensions, or reference modifiers.
     // Without this, OnUnmount would fire for some elements of a type and silently not for
     // others — the callback-free ones — which is not a contract an author can reason about.
-    if (_descriptor.OnUnmount is not null || _descriptor.Properties.Any(static p => p.HasUnmount))
+    if (_descriptor.OnUnmount is not null || _hasPropUnmount)
         Reconciler.GetOrCreateReactorState(ctrl);
 
     // §14 Phase 3-final: when the descriptor declares an ItemsHost,
@@ -515,19 +515,36 @@ source position. Descendants are visited even when the source list is the
 same instance, so a child component's own state can update. Raw values use
 `ItemEquals` (or `object.Equals`); this comparison does not skip Element
 descendants. Insertions and removals update the sink incrementally rather
-than clearing and rebuilding it. Removed Element controls are detached
-before teardown, and the host owns their terminal unmount.
+than clearing and rebuilding it. Removed Element controls are unmounted
+while still parented, then detached; the host owns their terminal unmount.
+Raw-only lists retain the unchanged-list fast path. Element lists still
+visit descendants, but in-place matches avoid rebuilding the collection.
+For raw values, a positionally equal list retains existing instances;
+structural updates write the new source values, including `ItemEquals` matches.
 
 For a managed control with a writable `IList<object> Items` property,
 provide the optional `SetCollection` callback:
 
 ```csharp
-Children = new ItemsHost<MyElement, MyControl>(
-    GetItems: static e => e.Items,
-    GetCollection: static c => c.Items)
+public sealed record FlatItemsElement(IReadOnlyList<object> Items) : Element;
+
+public sealed partial class FlatItemsControl : WinUI.Control
 {
-    SetCollection = static (c, items) => c.Items = items,
-},
+    public IList<object> Items { get; set; } = new List<object>();
+}
+
+public static class FlatItemsDescriptor
+{
+    public static readonly ControlDescriptor<FlatItemsElement, FlatItemsControl> Descriptor = new()
+    {
+        Children = new ItemsHost<FlatItemsElement, FlatItemsControl>(
+            GetItems: static e => e.Items,
+            GetCollection: static c => c.Items)
+        {
+            SetCollection = static (c, items) => c.Items = items,
+        },
+    };
+}
 ```
 
 On mount, a non-notifying sink is replaced with an
@@ -701,7 +718,7 @@ hatches a hand-coded handler would otherwise need:
 | `.OneWayBridged(get, set, shouldWrite)` | One-way prop whose `set` lambda needs access to the reconciler (used by the button-family flyout port). |
 | `.Imperative(mount, update)` | Property-level escape hatch — the lambdas receive `(control, element)` and `(control, oldEl, newEl)` so an entry can express a diff the standard builders cannot. |
 | `.ImperativeBridged(mount, update)` | Same shape with the `MountContext` / `UpdateContext` available — primary use is a secondary Element slot that needs structural reconcile via `ReconcileV1Child`. |
-| `.ImperativeBridged(mount, update, unmount)` | Adds property-owned teardown with an `UnmountContext`; use it to detach and unmount a secondary Element slot. The two-callback overload remains available. |
+| `.ImperativeBridged(mount, update, unmount)` | Adds property-owned teardown with an `UnmountContext`; unmount a secondary Element slot while parented, then detach it. Runs before descriptor `OnUnmount` and roots per-control ReactorState. The two-callback overload remains available for bindings without owned child lifetime. |
 
 Property-owned `unmount` callbacks run before the descriptor's `OnUnmount`,
 independently of that callback. Detach an owned slot from its native parent

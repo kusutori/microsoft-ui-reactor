@@ -577,6 +577,32 @@ public partial record DynamicItemsElement;
         Assert.Empty(result.Diagnostics);
     }
 
+    [Theory]
+    [InlineData("public Microsoft.UI.Xaml.Controls.ItemCollection Items { get; set; }")]
+    [InlineData("public global::System.Collections.Generic.IList<string> Items { get; set; }")]
+    [InlineData("public global::System.Collections.Generic.IList<object> Items { get; init; }")]
+    [InlineData("public global::System.Collections.Generic.IList<object> Items { get; private set; }")]
+    public void Incompatible_Items_Properties_Do_Not_Emit_Collection_Setter(string property)
+    {
+        var result = Run(Stubs + @"
+namespace Microsoft.UI.Xaml.Controls
+{
+    public class ItemCollection : global::System.Collections.Generic.List<object> {}
+}
+namespace App
+{
+    public class RestrictedItems : Microsoft.UI.Xaml.Controls.Control
+    {
+        " + property + @"
+    }
+}
+[Microsoft.UI.Reactor.Wrappers.GenerateReactorWrapper(typeof(App.RestrictedItems))]
+public partial record RestrictedItemsElement;
+");
+        Assert.DoesNotContain("SetCollection =", WrapperFor(result, "RestrictedItemsElement"));
+        Assert.Empty(result.Diagnostics);
+    }
+
     [Fact]
     public void Items_Control_Emit_ItemsHost_Strategy_And_Items_Slot()
     {

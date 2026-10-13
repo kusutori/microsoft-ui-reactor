@@ -46,11 +46,14 @@ public class DescriptorHandler<TElement, TControl> : IElementHandler<TElement, T
     where TControl : FrameworkElement, new()
 {
     private readonly ControlDescriptor<TElement, TControl> _descriptor;
+    private readonly bool _hasPropUnmount;
 
     public DescriptorHandler(ControlDescriptor<TElement, TControl> descriptor)
     {
         ArgumentNullException.ThrowIfNull(descriptor);
         _descriptor = descriptor;
+        for (int i = 0; i < descriptor.Properties.Count; i++)
+            if (descriptor.Properties[i].HasUnmount) { _hasPropUnmount = true; break; }
     }
 
     /// <summary>The descriptor this handler interprets. Exposed for tests
@@ -100,7 +103,7 @@ public class DescriptorHandler<TElement, TControl> : IElementHandler<TElement, T
         // only for elements that carry callbacks, a key, extensions, or reference modifiers.
         // Without this, OnUnmount would fire for some elements of a type and silently not for
         // others — the callback-free ones — which is not a contract an author can reason about.
-        if (_descriptor.OnUnmount is not null || _descriptor.Properties.Any(static p => p.HasUnmount))
+        if (_descriptor.OnUnmount is not null || _hasPropUnmount)
             Reconciler.GetOrCreateReactorState(ctrl);
 
         // §14 Phase 3-final: when the descriptor declares an ItemsHost,
@@ -150,8 +153,9 @@ public class DescriptorHandler<TElement, TControl> : IElementHandler<TElement, T
     /// write — could outlive the mount that created it.</summary>
     public void Unmount(UnmountContext ctx, TControl control)
     {
-        foreach (var prop in _descriptor.Properties)
-            prop.Unmount(in ctx, control);
+        if (_hasPropUnmount)
+            for (int i = 0; i < _descriptor.Properties.Count; i++)
+                _descriptor.Properties[i].Unmount(in ctx, control);
         _descriptor.OnUnmount?.Invoke(in ctx, control);
     }
 
