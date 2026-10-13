@@ -60,11 +60,19 @@ internal static class ItemsHostReconciliation
         if (!isMount && !itemsState.HasElements && ReferenceEquals(itemsState.Source, source))
             return;
 
+        // String arrays cannot contain Element descendants. Keep their common
+        // unchanged path separate so the general raw-edit loop stays small.
+        if (!isMount && !itemsState.HasElements && strategy.ItemEquals is null
+            && itemsState.Source is string[] oldStrings && source is string[] strings
+            && oldStrings.AsSpan().SequenceEqual(strings))
+        {
+            itemsState.Source = source;
+            return;
+        }
+
         if (!isMount && !itemsState.HasElements &&
             TryUpdateRawInPlace(strategy, control, itemsState, source, equals))
             return;
-
-        collection ??= strategy.GetCollection(control);
 
         if (!isMount && MatchesInPlace(previous, source, equals))
         {
@@ -76,12 +84,35 @@ internal static class ItemsHostReconciliation
                 var value = old.Value;
                 if (item is Element child)
                 {
-                    // Even identical Element records can contain dirty components or context consumers.
-                    // ReconcileV1Child owns type replacement and Hot Reload migration.
-                    value = reconciler.ReconcileV1Child(old.Source as Element, child,
-                        old.Value as UIElement, requestRerender);
+                    // Share the ordinary child-diff skip contract, not a blanket
+                    // same-array skip: dirty/context-consuming components must still descend.
+                    if (old.Source is Element oldChild && old.Value is UIElement existing
+                        && Element.CanSkipUpdate(oldChild, child)
+                        && !reconciler.ForceRenderThroughWrapper(child)
+                        && !reconciler.IsOnDirtyAncestorPath(existing)
+                        && !reconciler.ShouldDeclineSkip(existing))
+                    {
+                        reconciler.DebugElementsSkipped++;
+                        if ((child.HasCallbacks
+                                || Reconciler.HasGestureOrDragSlots(oldChild.Modifiers)
+                                || Reconciler.HasGestureOrDragSlots(child.Modifiers)
+                                || Reconciler.CallSiteChangedOnSkip(oldChild, child))
+                            && existing is FrameworkElement fe)
+                        {
+                            if (child.HasCallbacks || Reconciler.CallSiteChangedOnSkip(oldChild, child))
+                                Reconciler.SetElementTag(fe, child);
+                            if (Reconciler.HasGestureOrDragSlots(oldChild.Modifiers)
+                                || Reconciler.HasGestureOrDragSlots(child.Modifiers))
+                                Reconciler.RefreshGestureDragStateOnSkip(fe, oldChild.Modifiers, child.Modifiers);
+                        }
+                    }
+                    else
+                        // ReconcileV1Child owns type replacement and Hot Reload migration.
+                        value = reconciler.ReconcileV1Child(old.Source as Element, child,
+                            old.Value as UIElement, requestRerender);
                     if (!ReferenceEquals(old.Value, value))
                     {
+                        collection ??= strategy.GetCollection(control);
                         if (old.Value is null)
                         {
                             if (value is not null) collection.Insert(target, value);
@@ -100,6 +131,7 @@ internal static class ItemsHostReconciliation
             return;
         }
 
+        collection ??= strategy.GetCollection(control);
         var used = new bool[previous.Count];
         var next = new List<ItemsHostState.Item>(source.Count);
         Dictionary<string, Queue<int>>? keyed = null;
