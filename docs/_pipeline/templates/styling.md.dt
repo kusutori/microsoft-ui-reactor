@@ -206,9 +206,16 @@ pressed, disabled) automatically respect your overrides:
 
 ![Lightweight styling](screenshot://styling/lightweight-styling)
 
-`ResourceBuilder` supports `.Set(key, ThemeRef)` for theme-reactive
-overrides, `.Set(key, string)` for hex colors, `.Set(key, double)` for
-numeric values, and `.Set(key, CornerRadius)` for corner radius.
+`ResourceBuilder.Set` has explicit overloads for `ThemeRef`, `Brush`,
+color strings, `double`, `CornerRadius`, `Thickness`, `FontWeight`,
+`FontFamily`, `bool`, `Color`, and `GridLength`. Use `Thickness` for padding
+or border thickness, and `FontWeight` / `FontFamily` for typography resources.
+Literal values retain their types; `ThemeRef` overrides re-resolve on theme changes.
+
+The `Color` overload stores a color value, not a brush. The string overload
+still parses a hex or named color into a brush; it does not store arbitrary
+text. Integer literals continue to select the `double` overload, so pass the
+value type expected by the WinUI resource key rather than relying on conversion.
 Overrides cascade to child elements through WinUI's resource dictionary
 hierarchy.
 
