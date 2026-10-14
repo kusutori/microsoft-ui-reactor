@@ -258,10 +258,14 @@ var displays = UseDisplays();
 var nearest = ReactorDisplay.NearestTo(window.Position.X, window.Position.Y);
 
 var file = await UseFilePickerAsync(new FilePickerOptions(FileTypeFilter: [".txt"]));
+var files = await UseMultipleFilesPickerAsync(new FilePickerOptions(FileTypeFilter: [".txt"]));
 var folder = await UseFolderPickerAsync(new FolderPickerOptions());
+var saveFile = await UseSaveFilePickerAsync(new SaveFilePickerOptions(
+    new Dictionary<string, IReadOnlyList<string>> { ["Text"] = [".txt"] },
+    SuggestedFileName: "report"));
 ```
 
-Picker hooks must run on the owning window's UI thread and use the owning HWND;
+Picker helpers must be invoked from UI-thread event handlers, not during Render, and use the owning HWND;
 there is no arbitrary HWND parameter.
 
 ## Render errors
