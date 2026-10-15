@@ -1818,6 +1818,11 @@ internal static class SelfTestFixtureRegistry
         "ItemsHost_Unkeyed_Type_Pool",
         "ItemsHost_Slot_Rooting_Defaults",
         "ItemsHost_HandHandler_RawEquality",
+        "ItemsHost_Skipped_Click",
+        "ItemsHost_PlainEvent_Unmount",
+        "ItemsHost_Native_Reorder",
+        "ItemsHost_Combo_Reopen",
+        "ItemsHost_Expander_HeaderCleanup",
         "ProgressBarValue",
 
         // Spec 047 §4.3 — EventHandlerState split (§9.2) contract fixtures.
@@ -3853,6 +3858,11 @@ internal static class SelfTestFixtureRegistry
         "ItemsHost_Unkeyed_Type_Pool" => new ItemsHostEdgeCasesFixtures.UnkeyedTypeAndPool(harness),
         "ItemsHost_Slot_Rooting_Defaults" => new ItemsHostEdgeCasesFixtures.SlotRootingAndDefaults(harness),
         "ItemsHost_HandHandler_RawEquality" => new ItemsHostEdgeCasesFixtures.HandHandlerAndRawEquality(harness),
+        "ItemsHost_Skipped_Click" => new ItemsHostReviewFixtures.SkippedClick(harness),
+        "ItemsHost_PlainEvent_Unmount" => new ItemsHostReviewFixtures.PlainEventUnmount(harness),
+        "ItemsHost_Native_Reorder" => new ItemsHostReviewFixtures.NativeReorder(harness),
+        "ItemsHost_Combo_Reopen" => new ItemsHostReviewFixtures.ComboReopen(harness),
+        "ItemsHost_Expander_HeaderCleanup" => new ItemsHostReviewFixtures.ExpanderHeaderCleanup(harness),
         "ProgressBarValue" => new ProgressBarValueFixture.Execution(harness),
 
         // Spec 047 §4.3 — EventHandlerState split (§9.2) contract fixtures.

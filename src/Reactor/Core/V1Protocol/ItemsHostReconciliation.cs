@@ -19,27 +19,19 @@ internal sealed class ItemsHostState
 /// <summary>Shared flat-items lifecycle for descriptors and hand-coded handlers.</summary>
 internal static class ItemsHostReconciliation
 {
-    // WinRT can recreate a managed wrapper while the native control and its Items
-    // remain alive. Root reconciliation state on that native control, not in a
-    // wrapper-keyed weak table: losing the old state would append the items again.
-    // A separate attached property avoids enlarging ReactorState for every control.
-    private static readonly DependencyProperty StateProperty =
-        DependencyProperty.RegisterAttached(
-            "ReactorItemsHostState", typeof(ItemsHostState),
-            typeof(ItemsHostReconciliation), new PropertyMetadata(null));
-
     internal static void Bind<TElement, TControl>(
         ItemsHost<TElement, TControl> strategy, TElement element, TControl control,
         Reconciler reconciler, Action requestRerender, bool isMount)
         where TElement : Element
         where TControl : UIElement
     {
+        var state = Reconciler.GetOrCreateReactorState(control);
         IList<object>? collection = null;
         if (isMount)
         {
             // Hand-coded handlers dispatch children after the adapter's initial tag
             // pass, so callback-free hosts must be rooted here too.
-            Reconciler.GetOrCreateReactorState(control).Element = element;
+            state.Element = element;
             collection = strategy.GetCollection(control);
             if (strategy.SetCollection is { } set && collection is not INotifyCollectionChanged)
             {
@@ -48,10 +40,10 @@ internal static class ItemsHostReconciliation
             }
             else if (collection.Count > 0)
                 ClearSuppressed(control, collection);
-            control.SetValue(StateProperty, new ItemsHostState());
+            state.ItemsHostState = new ItemsHostState();
         }
 
-        var itemsState = control.GetValue(StateProperty) as ItemsHostState
+        var itemsState = state.ItemsHostState
             ?? throw new InvalidOperationException("ItemsHost state is missing for a mounted control.");
         var previous = itemsState.Items;
         var source = strategy.GetItems(element);
@@ -99,11 +91,7 @@ internal static class ItemsHostReconciliation
                                 || Reconciler.CallSiteChangedOnSkip(oldChild, child))
                             && existing is FrameworkElement fe)
                         {
-                            if (child.HasCallbacks || Reconciler.CallSiteChangedOnSkip(oldChild, child))
-                                Reconciler.SetElementTag(fe, child);
-                            if (Reconciler.HasGestureOrDragSlots(oldChild.Modifiers)
-                                || Reconciler.HasGestureOrDragSlots(child.Modifiers))
-                                Reconciler.RefreshGestureDragStateOnSkip(fe, oldChild.Modifiers, child.Modifiers);
+                            Reconciler.RefreshSkippedChildState(fe, oldChild, child);
                         }
                     }
                     else
@@ -184,9 +172,14 @@ internal static class ItemsHostReconciliation
                 if (match >= 0)
                 {
                     used[match] = true;
-                    // A structural update writes the new raw object, not an old Id-equal instance.
-                    if (!ReferenceEquals(previous[match].Value, item))
-                        RemoveReference(collection, previous[match].Value);
+                    // Retain equal values (and selection), but refresh changed Id-equal payloads.
+                    var retained = previous[match].Value;
+                    if (object.Equals(retained, item))
+                    {
+                        next.Add(new(item, retained));
+                        continue;
+                    }
+                    RemoveReference(collection, retained);
                 }
                 next.Add(new(item, item));
             }
@@ -310,11 +303,15 @@ internal static class ItemsHostReconciliation
         where TElement : Element
         where TControl : UIElement
     {
-        if (control.GetValue(StateProperty) is not ItemsHostState items) return;
-        control.ClearValue(StateProperty);
+        var state = Reconciler.GetOrCreateReactorState(control);
+        if (state.ItemsHostState is not { } items) return;
+        state.ItemsHostState = null;
         for (int i = 0; i < items.Items.Count; i++)
             if (items.Items[i] is { Source: Element, Value: UIElement child })
                 reconciler.UnmountChild(child);
+        // Children and property-owned slots have already received teardown while
+        // parented. Plain generated events read this tag rather than echo state.
+        state.Element = null;
         ClearSuppressed(control, strategy.GetCollection(control));
     }
 

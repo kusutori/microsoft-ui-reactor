@@ -1,5 +1,5 @@
-// Ad-hoc PR #1363 perf probe — NOT committed. Exercises the ItemsHost update path
-// (ListView = Element items, ComboBox = raw string items). Each iteration re-renders
+// ItemsHost update benchmarks: ComboBox Element and raw-string items.
+// Covers unchanged sources, equal sources and single-item edits. Each iteration re-renders
 // the host with a fresh parent element so the handler's Update path always runs.
 using Microsoft.UI.Reactor;
 using Microsoft.UI.Reactor.Core;
@@ -57,7 +57,7 @@ public abstract class ItemsHostBenchBase : IBench
 
 /// <summary>ComboBox ItemElements, 100 Element items, same array every render; only a host property
 /// (Margin) toggles, so the host updates but its list is untouched.</summary>
-public sealed class IH1_ListViewSameArray : ItemsHostBenchBase
+public sealed class IH1_ComboBoxElementsSameArray : ItemsHostBenchBase
 {
     public override string Id => "IH1";
     public override string Name => "ComboBoxEl100_SameItemsArray";
@@ -66,7 +66,7 @@ public sealed class IH1_ListViewSameArray : ItemsHostBenchBase
 }
 
 /// <summary>ComboBox ItemElements, 100 Element items, fresh-but-equal element instances every render (typical Render()).</summary>
-public sealed class IH2_ListViewEqualFresh : ItemsHostBenchBase
+public sealed class IH2_ComboBoxElementsEqualFresh : ItemsHostBenchBase
 {
     public override string Id => "IH2";
     public override string Name => "ComboBoxEl100_EqualFreshItems";
@@ -76,7 +76,7 @@ public sealed class IH2_ListViewEqualFresh : ItemsHostBenchBase
 }
 
 /// <summary>ComboBox ItemElements, 100 Element items, one item's text toggles every render.</summary>
-public sealed class IH3_ListViewOneChanged : ItemsHostBenchBase
+public sealed class IH3_ComboBoxElementsOneChanged : ItemsHostBenchBase
 {
     public override string Id => "IH3";
     public override string Name => "ComboBoxEl100_OneItemChanged";

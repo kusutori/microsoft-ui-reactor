@@ -28,6 +28,8 @@ Conventions for contributors:
 
 ### Added
 
+- Optional `ItemsHost.SetCollection` and property-owned teardown via the three-callback `ImperativeBridged` overload (specs 047/058).
+
 - **Inspector diagnostics for hosts, roots and component boundaries** (spec 010).
   `ReactorDiagnostics.GetHosts()` (`Microsoft.UI.Reactor.Core.Diagnostics`) returns
   a snapshot of every live `ReactorHost` and `ReactorHostControl` — window,
@@ -260,6 +262,8 @@ Conventions for contributors:
   `winapp new --template-version`.
 
 ### Fixed
+
+- Flat `ItemsHost` children reconcile incrementally and generated Element slots receive terminal teardown while still parented (specs 047/058).
 
 - **`RenderError` names the component that threw, and now reports every render
   error** (issue #1321, spec 044 §6.2.1). For class components the event reported

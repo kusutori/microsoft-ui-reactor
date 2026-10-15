@@ -46,10 +46,15 @@ control property, the single-content/children slot, `On{Event}` callbacks, the
 `SettingsCard(...)` factory. `Setters` is always emitted as an escape hatch
 (`.Set(c => c.Foo = …)`) for anything not surfaced.
 
-**You never call `ReactorApp.RegisterControlAssembly` yourself** — the generator
-emits it in the element's static constructor, so a control library's
+The generator normally emits `ReactorApp.RegisterControlAssembly` in the element's
+static constructor, so a control library's
 `Themes/Generic.xaml` resolves before first realization (avoids the `0xC000027B`
 crash, spec 058 §9a).
+
+For code-only Native AOT apps, implicit discovery of the toolkit provider can be
+trimmed. Explicitly construct and register its generated `XamlMetaDataProvider`
+before realization when needed; see `docs/aot-support.md`. The observable Items
+collection's generated WinRT exposure does not root toolkit metadata.
 
 ## Requirements & setup
 
@@ -74,7 +79,7 @@ generic modifiers like `.Margin()`, `.Width()`):
 | Value prop `P` **paired with** a `{P}Changed` event | a **two-way controlled** `Optional<T>` prop + `On{P}Changed` callback, with echo suppression |
 | The control's `[ContentProperty]` (a `UIElement` child, or `object` named exactly `Content`) | the single **`content:`** child slot |
 | A public `Children` of `UIElementCollection` (a `Panel`) | a `params Element[]` children slot |
-| A public `Items` whose type is/implements `IList<object>` (an `ItemsControl`) | a `params object[] items` slot |
+| A public `Items` whose type is/implements `IList<object>` (an `ItemsControl`) | a `params object[] items` slot; incremental reconciliation, `.WithKey(...)` preserves state across reorders, and writable `IList<object>` sinks get an observable list on mount |
 | A fire-and-forget `RoutedEventHandler` / `TypedEventHandler<,>` / `EventHandler<A>` event | an `On{Event}` callback (typed events auto-surface the whole args as `Action<A>`) |
 
 Two-way auto-pairing keys **strictly on the `{P}Changed` name**. Controls whose

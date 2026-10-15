@@ -97,7 +97,7 @@ $script:MicroNsAutoFlag = $false
 # is indistinguishable from a clean full run. A drift-guard test (RunPerfBenchmark.Tests)
 # asserts this equals the BenchCatalog.All count so the two can't silently diverge -- keep them
 # in sync when the suite changes.
-$script:MicroExpectedBenchCount = 17
+$script:MicroExpectedBenchCount = 23
 
 function ConvertTo-PerfDouble {
     <#

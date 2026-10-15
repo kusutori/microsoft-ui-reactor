@@ -799,6 +799,8 @@ public sealed partial class Reconciler : IDisposable
         // ops translate into container-level animations rather than full
         // re-realization.
         public Internal.ReactorListState? ListState;
+        // Flat item state shares the native control's existing attached state.
+        public V1Protocol.ItemsHostState? ItemsHostState;
 
         // Spec 047 §14 Phase 3 close-out — descriptor-side per-index view
         // source. Populated by Reconciler.BindKeyedItemsSource when a
@@ -916,6 +918,13 @@ public sealed partial class Reconciler : IDisposable
         if (element is null) return; // nothing to store
         state = new ReactorState { Element = element };
         control.SetValue(ReactorAttached.StateProperty, state);
+    }
+
+    internal static void RefreshSkippedChildState(FrameworkElement control, Element oldElement, Element newElement)
+    {
+        if (newElement.HasCallbacks || CallSiteChangedOnSkip(oldElement, newElement))
+            SetElementTag(control, newElement);
+        RefreshGestureDragStateOnSkip(control, oldElement.Modifiers, newElement.Modifiers);
     }
 
     /// <summary>

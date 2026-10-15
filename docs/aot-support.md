@@ -22,6 +22,23 @@ This page enumerates what works, what doesn't, and what's planned. **If you publ
 
 ## What does *not* work under AOT (today)
 
+### Code-only apps wrapping toolkit controls
+
+An observable `ItemsHost` list has generated WinRT exposure, but that only covers
+the collection ABI, not the control library's XAML templates. A code-only AOT app
+may need to statically root and register the toolkit's generated metadata provider
+before mounting wrapped controls. For example, with WCT SettingsControls:
+
+```csharp
+ReactorApp.RegisterControlAssembly(
+    new CommunityToolkit.WinUI.Controls.SettingsControlsRns.
+        CommunityToolkit_WinUI_Controls_SettingsControls_XamlTypeInfo.XamlMetaDataProvider());
+```
+
+The concrete provider name depends on the library. The SettingsExpander selftest
+uses this registration explicitly; passing it is not proof of automatic metadata
+discovery under trimming.
+
 These subsystems compile cleanly with `IsAotCompatible=true` (the warnings are suppressed), but the suppressions cover real reflection that will throw at runtime under `PublishAot=true`. Don't rely on them in an AOT-published app until they're rebuilt on source generators.
 
 | Subsystem | What breaks | Tracking |

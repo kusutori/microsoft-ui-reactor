@@ -145,9 +145,10 @@ public sealed record ItemsHost<TElement, TControl>(
     /// <summary>Optional equality predicate for raw (non-Element) items.
     /// A positionally equal list retains its existing raw instances, matching
     /// the legacy unchanged-list fast path. On a structural update, matched raw
-    /// items are written from the new source rather than retaining old instances.
-    /// Element children always descend through the reconciler, even when their
-    /// source list is unchanged. Defaults to object.Equals.</summary>
+    /// value-equal instances are retained; Id-equal objects with changed payloads
+    /// are replaced. Element children follow panel skip rules: dirty paths,
+    /// changed context, theme sensitivity and force-rendering decline the skip.
+    /// Defaults to object.Equals.</summary>
     public Func<object?, object?, bool>? ItemEquals { get; init; }
 
     /// <summary>Optional setter for an interface-typed Items property. On mount the
