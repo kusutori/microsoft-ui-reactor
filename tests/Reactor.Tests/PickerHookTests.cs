@@ -32,8 +32,11 @@ public class PickerHookTests
     [Fact]
     public void SavePickerRejectsMissingFileTypeChoices()
     {
-        Assert.Throws<ArgumentNullException>(() => DefaultPickerService.CreateFileSavePicker(0, new(null!)));
-        Assert.Throws<ArgumentException>(() => DefaultPickerService.CreateFileSavePicker(0, new(new Dictionary<string, IReadOnlyList<string>>())));
+        var missing = Assert.Throws<ArgumentNullException>(() => DefaultPickerService.CreateFileSavePicker(0, new(null!)));
+        Assert.Equal("options.FileTypeChoices", missing.ParamName);
+        var empty = Assert.Throws<ArgumentException>(() => DefaultPickerService.CreateFileSavePicker(0, new(new Dictionary<string, IReadOnlyList<string>>())));
+        Assert.Equal("options", empty.ParamName);
+        Assert.StartsWith("At least one file type choice is required.", empty.Message);
     }
 
     private static void Invoke(RenderContext context, string method, FilePickerOptions? options)

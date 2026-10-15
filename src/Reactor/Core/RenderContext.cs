@@ -2078,7 +2078,7 @@ public sealed class RenderContext
         var win = Microsoft.UI.Reactor.ReactorApp.ActiveHostInternal?.OwningWindow
             ?? throw new InvalidOperationException($"{hookName} requires an owning ReactorWindow.");
         EnsurePickerOnUiThread(win, hookName);
-        return WinRT.Interop.WindowNative.GetWindowHandle(win.NativeWindow);
+        return win.Hwnd;
     }
 
     private static void EnsurePickerOnUiThread(Microsoft.UI.Reactor.ReactorWindow win, string hookName)

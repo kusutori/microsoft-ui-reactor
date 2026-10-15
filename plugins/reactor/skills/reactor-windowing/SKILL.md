@@ -257,12 +257,18 @@ taskbar.Progress.Value = 0.25;
 var displays = UseDisplays();
 var nearest = ReactorDisplay.NearestTo(window.Position.X, window.Position.Y);
 
-var file = await UseFilePickerAsync(new FilePickerOptions(FileTypeFilter: [".txt"]));
-var files = await UseMultipleFilesPickerAsync(new FilePickerOptions(FileTypeFilter: [".txt"]));
-var folder = await UseFolderPickerAsync(new FolderPickerOptions());
-var saveFile = await UseSaveFilePickerAsync(new SaveFilePickerOptions(
-    new Dictionary<string, IReadOnlyList<string>> { ["Text"] = [".txt"] },
-    SuggestedFileName: "report"));
+// Capture the helpers during Render; invoke them only from UI event handlers.
+var pickFile = UseFilePickerAsync;
+var pickFiles = UseMultipleFilesPickerAsync;
+var pickFolder = UseFolderPickerAsync;
+var saveFile = UseSaveFilePickerAsync;
+return VStack(
+    Button("Open", async () => { var file = await pickFile(new(FileTypeFilter: [".txt"])); }),
+    Button("Open multiple", async () => { var files = await pickFiles(new(FileTypeFilter: [".txt"])); }),
+    Button("Folder", async () => { var folder = await pickFolder(new()); }),
+    Button("Save", async () => { var file = await saveFile(new(
+        new Dictionary<string, IReadOnlyList<string>> { ["Text"] = [".txt"] },
+        SuggestedFileName: "report")); }));
 ```
 
 Picker helpers must be invoked from UI-thread event handlers, not during Render, and use the owning HWND;

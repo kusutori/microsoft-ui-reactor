@@ -12,7 +12,7 @@ internal static class PickerHooksFixtures
     {
         public FilePickerOptions OpenOptions { get; } = new([".txt", ".md"], PickerLocationId.Downloads, "Read")
         {
-            ViewMode = PickerViewMode.List,
+            ViewMode = PickerViewMode.Thumbnail,
             SettingsIdentifier = "reactor-open-test",
         };
         public FolderPickerOptions FolderOptions { get; } = new(PickerLocationId.Desktop, "Select")
@@ -23,7 +23,7 @@ internal static class PickerHooksFixtures
         };
         public SaveFilePickerOptions SaveOptions { get; } = new(
             new Dictionary<string, IReadOnlyList<string>> { ["Text"] = [".txt", ".md"], ["JSON"] = [".json"] },
-            "report", PickerLocationId.DocumentsLibrary, "Export")
+            "report", PickerLocationId.PicturesLibrary, "Export")
         {
             SettingsIdentifier = "reactor-save-test",
         };
@@ -142,7 +142,7 @@ internal static class PickerHooksFixtures
                 var open = DefaultPickerService.CreateFileOpenPicker(hwnd, component.OpenOptions);
                 H.Check("PickerHooks_NativeOpenOptions", open.FileTypeFilter.SequenceEqual([".txt", ".md"])
                     && open.SuggestedStartLocation == PickerLocationId.Downloads && open.CommitButtonText == "Read"
-                    && open.ViewMode == PickerViewMode.List && open.SettingsIdentifier == "reactor-open-test");
+                    && open.ViewMode == PickerViewMode.Thumbnail && open.SettingsIdentifier == "reactor-open-test");
                 var nativeFolder = DefaultPickerService.CreateFolderPicker(hwnd, component.FolderOptions);
                 H.Check("PickerHooks_NativeFolderOptions", nativeFolder.FileTypeFilter.SequenceEqual([".txt"])
                     && nativeFolder.SuggestedStartLocation == PickerLocationId.Desktop && nativeFolder.CommitButtonText == "Select"
@@ -152,13 +152,14 @@ internal static class PickerHooksFixtures
                     && nativeSave.FileTypeChoices["Text"].SequenceEqual([".txt", ".md"])
                     && nativeSave.FileTypeChoices["JSON"].SequenceEqual([".json"])
                     && nativeSave.SuggestedFileName == "report" && nativeSave.CommitButtonText == "Export"
-                    && nativeSave.SuggestedStartLocation == PickerLocationId.DocumentsLibrary && nativeSave.SettingsIdentifier == "reactor-save-test");
+                    && nativeSave.SuggestedStartLocation == PickerLocationId.PicturesLibrary && nativeSave.SettingsIdentifier == "reactor-save-test");
                 var suggestedSave = DefaultPickerService.CreateFileSavePicker(hwnd, component.SaveOptions with { SuggestedSaveFile = first });
                 H.Check("PickerHooks_NativeSuggestedSaveFile", suggestedSave.SuggestedSaveFile?.Path == first.Path);
                 var defaultOpen = DefaultPickerService.CreateFileOpenPicker(hwnd, new());
                 var emptyOpen = DefaultPickerService.CreateFileOpenPicker(hwnd, new([]));
                 var defaultFolder = DefaultPickerService.CreateFolderPicker(hwnd, new());
                 var emptyFolder = DefaultPickerService.CreateFolderPicker(hwnd, new() { FileTypeFilter = [] });
+                H.Check("PickerHooks_NativeViewDefault", defaultOpen.ViewMode == PickerViewMode.List);
                 H.Check("PickerHooks_NativeFilterDefaults", defaultOpen.FileTypeFilter.SequenceEqual(["*"])
                     && emptyOpen.FileTypeFilter.SequenceEqual(["*"])
                     && defaultFolder.FileTypeFilter.SequenceEqual(["*"])
