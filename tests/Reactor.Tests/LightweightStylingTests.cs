@@ -93,7 +93,7 @@ public class LightweightStylingTests
     {
         var value = global::Windows.UI.Color.FromArgb(127, 12, 34, 56);
         var builder = new ResourceBuilder();
-        Assert.Same(builder, builder.Set("AccentFillColorDisabled", value));
+        Assert.Same(builder, builder.SetColor("AccentFillColorDisabled", value));
         Assert.Equal(value, Assert.IsType<global::Windows.UI.Color>(builder.Build().Literals["AccentFillColorDisabled"]));
     }
 
@@ -115,6 +115,24 @@ public class LightweightStylingTests
         var builder = new ResourceBuilder();
         builder.Set("BreadcrumbBarItemThemeFontSize", 28);
         Assert.Equal(28d, Assert.IsType<double>(builder.Build().Literals["BreadcrumbBarItemThemeFontSize"]));
+    }
+
+    [Fact]
+    public void Typed_Resource_Equality_Uses_Values_Not_Box_Identity()
+    {
+        Check(r => r.Set("x", new Thickness(1, 2, 3, 4)), r => r.Set("x", new Thickness(4, 3, 2, 1)));
+        Check(r => r.Set("x", new global::Windows.UI.Text.FontWeight(700)), r => r.Set("x", new global::Windows.UI.Text.FontWeight(400)));
+        Check(r => r.Set("x", true), r => r.Set("x", false));
+        Check(r => r.SetColor("x", global::Windows.UI.Color.FromArgb(127, 12, 34, 56)),
+            r => r.SetColor("x", global::Windows.UI.Color.FromArgb(255, 12, 34, 56)));
+        Check(r => r.Set("x", new GridLength(2, GridUnitType.Star)), r => r.Set("x", new GridLength(2, GridUnitType.Pixel)));
+
+        static void Check(Action<ResourceBuilder> same, Action<ResourceBuilder> different)
+        {
+            var first = TextBlock("value").Resources(same);
+            Assert.True(Element.ShallowEquals(first, TextBlock("value").Resources(same)));
+            Assert.False(Element.ShallowEquals(first, TextBlock("value").Resources(different)));
+        }
     }
 
     [Fact]

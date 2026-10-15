@@ -112,7 +112,7 @@ public sealed class ResourceBuilder
     /// Sets a literal color resource override, not a brush. Use the string or
     /// <see cref="Brush"/> overload for resources that expect a brush.
     /// </summary>
-    public ResourceBuilder Set(string key, Color value)
+    public ResourceBuilder SetColor(string key, Color value)
     {
         _literals[key] = value;
         return this;

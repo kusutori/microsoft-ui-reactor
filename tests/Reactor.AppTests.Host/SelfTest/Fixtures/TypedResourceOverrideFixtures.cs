@@ -1,6 +1,7 @@
 using Microsoft.UI.Reactor.Core;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Media;
 using static Microsoft.UI.Reactor.Factories;
 
@@ -27,7 +28,7 @@ internal static class TypedResourceOverrideFixtures
                         .Set("TypedWeight", new global::Windows.UI.Text.FontWeight((ushort)(phase == 0 ? 700 : 400)))
                         .Set("TypedFont", phase == 0 ? family : updatedFamily)
                         .Set("TypedBoolean", phase == 0)
-                        .Set("TypedColor", Color(phase))
+                        .SetColor("TypedColor", Color(phase))
                         .Set("TypedGridLength", Length(phase))
                         .Set("TypedBrush", "#123456"));
                 return element;
@@ -84,22 +85,55 @@ internal static class TypedResourceOverrideFixtures
             var padding = new Thickness(8, 4, 8, 0);
             var weight = new global::Windows.UI.Text.FontWeight(700);
             var host = H.CreateHost();
-            host.Mount(ctx => BreadcrumbBar([Breadcrumb("Receive"), Breadcrumb("History")], _ => { })
+            host.Mount(ctx => VStack(
+                BreadcrumbBar([Breadcrumb("Receive"), Breadcrumb("History")], _ => { }).Width(600).AutomationId("baseline-breadcrumb"),
+                BreadcrumbBar([Breadcrumb("Receive"), Breadcrumb("History")], _ => { }).Width(600).AutomationId("styled-breadcrumb")
                 .Resources(r => r
                     .Set("BreadcrumbBarItemThemeFontSize", 28)
                     .Set("BreadcrumbBarChevronFontSize", 16d)
                     .Set("BreadcrumbBarItemFontWeight", weight)
-                    .Set("BreadcrumbBarChevronPadding", padding)));
+                    .Set("BreadcrumbBarChevronPadding", padding))));
             await Harness.Render();
-            var breadcrumb = H.FindControl<BreadcrumbBar>(_ => true)
-                ?? throw new InvalidOperationException("BreadcrumbBar was not mounted.");
-            H.Check("TypedResource_BreadcrumbPadding", breadcrumb.Resources["BreadcrumbBarChevronPadding"] is Thickness actualPadding
-                && actualPadding == padding);
-            H.Check("TypedResource_BreadcrumbWeight", breadcrumb.Resources["BreadcrumbBarItemFontWeight"] is global::Windows.UI.Text.FontWeight actualWeight
-                && actualWeight.Weight == 700);
-            H.Check("TypedResource_BreadcrumbIntegerStillDouble", breadcrumb.Resources["BreadcrumbBarItemThemeFontSize"] is double size && size == 28d);
-            H.Check("TypedResource_BreadcrumbItems", breadcrumb.ItemsSource is global::System.Collections.IEnumerable items
-                && items.Cast<object>().SequenceEqual(new object[] { "Receive", "History" }));
+            var styled = H.FindControl<BreadcrumbBar>(b => AutomationProperties.GetAutomationId(b) == "styled-breadcrumb")!;
+            var baseline = H.FindControl<BreadcrumbBar>(b => AutomationProperties.GetAutomationId(b) == "baseline-breadcrumb")!;
+            await Harness.WaitFor(() => Probe(styled) is { Text: not null, Chevron: not null }
+                && Probe(baseline) is { Text: not null, Chevron: not null });
+            var plain = Probe(baseline);
+            var actual = Probe(styled);
+            H.Check("TypedResource_BreadcrumbBaseline", plain.Text is not null && plain.Chevron is not null
+                && plain.Text.FontWeight.Weight != weight.Weight && plain.Chevron.Padding != padding);
+            H.Check("TypedResource_BreadcrumbRenderedWeight", actual.Text?.FontWeight.Weight == weight.Weight);
+            H.Check("TypedResource_BreadcrumbRenderedPadding", actual.Chevron?.Padding == padding);
+            H.Check("TypedResource_BreadcrumbRenderedSize", actual.Text?.FontSize == 28d);
+        }
+
+        private static (TextBlock? Text, TextBlock? Chevron) Probe(BreadcrumbBar bar)
+        {
+            var text = Descendants(bar).OfType<TextBlock>().ToArray();
+            return (text.FirstOrDefault(t => t.Text == "Receive"),
+                text.FirstOrDefault(t => t.Name == "PART_ChevronTextBlock"));
+        }
+
+        private static IEnumerable<DependencyObject> Descendants(DependencyObject root)
+        {
+            for (int i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
+            {
+                var child = VisualTreeHelper.GetChild(root, i);
+                yield return child;
+                foreach (var descendant in Descendants(child)) yield return descendant;
+            }
+        }
+    }
+
+    internal sealed class FontFamilyEquality(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override Task RunAsync()
+        {
+            static Element Font(string source) => TextBlock("font")
+                .Resources(r => r.Set("ContentControlThemeFontFamily", new FontFamily(source)));
+            H.Check("TypedResource_FreshFontFamiliesEqual", Element.ShallowEquals(Font("Consolas"), Font("Consolas")));
+            H.Check("TypedResource_DifferentFontFamiliesDiffer", !Element.ShallowEquals(Font("Consolas"), Font("Segoe UI")));
+            return Task.CompletedTask;
         }
     }
 }
