@@ -13,7 +13,9 @@ internal sealed class ItemsHostState
     internal readonly record struct Item(object? Source, object? Value);
     internal List<Item> Items { get; set; } = new();
     internal IReadOnlyList<object>? Source { get; set; }
-    internal bool HasElements { get; set; }
+    internal int ElementCount { get; set; }
+    internal bool HasElements => ElementCount != 0;
+    internal bool AnyThemeSensitive { get; set; }
 }
 
 /// <summary>Shared flat-items lifecycle for descriptors and hand-coded handlers.</summary>
@@ -52,6 +54,19 @@ internal static class ItemsHostReconciliation
         if (!isMount && !itemsState.HasElements && ReferenceEquals(itemsState.Source, source))
             return;
 
+        // Render inputs are immutable snapshots, as on the ordinary child-skip
+        // paths. A retained source has no new closures or item props to refresh.
+        // Still visit it for descendant state, context, theme or a forced render.
+        if (!isMount && ReferenceEquals(itemsState.Source, source)
+            && !itemsState.AnyThemeSensitive
+            && !reconciler.ForceFullRenderActive
+            && !reconciler.IsOnDirtyAncestorPath(control)
+            && !HasChangedItemContext(itemsState, reconciler))
+        {
+            reconciler.DebugElementsSkipped += itemsState.ElementCount;
+            return;
+        }
+
         // String arrays cannot contain Element descendants. Keep their common
         // unchanged path separate so the general raw-edit loop stays small.
         if (!isMount && !itemsState.HasElements && strategy.ItemEquals is null
@@ -68,6 +83,7 @@ internal static class ItemsHostReconciliation
 
         if (!isMount && MatchesInPlace(previous, source, equals))
         {
+            bool anyThemeSensitive = false;
             int target = 0;
             for (int i = 0; i < source.Count; i++)
             {
@@ -76,6 +92,7 @@ internal static class ItemsHostReconciliation
                 var value = old.Value;
                 if (item is Element child)
                 {
+                    anyThemeSensitive |= ChildDiffHints.IsThemeSensitive(child);
                     // Share the ordinary child-diff skip contract, not a blanket
                     // same-array skip: dirty/context-consuming components must still descend.
                     if (old.Source is Element oldChild && old.Value is UIElement existing
@@ -116,6 +133,7 @@ internal static class ItemsHostReconciliation
                 if (value is not null) target++;
             }
             itemsState.Source = source;
+            itemsState.AnyThemeSensitive = anyThemeSensitive;
             return;
         }
 
@@ -134,14 +152,16 @@ internal static class ItemsHostReconciliation
             }
         }
 
-        bool hasElements = false;
+        int elementCount = 0;
+        bool themeSensitive = false;
         for (int i = 0; i < source.Count; i++)
         {
             var item = source[i];
             int match = -1;
             if (item is Element child)
             {
-                hasElements = true;
+                elementCount++;
+                themeSensitive |= ChildDiffHints.IsThemeSensitive(child);
                 if (child.Key is { } key)
                 {
                     if (keyed is not null && keyed.TryGetValue(key, out var indices) && indices.Count > 0)
@@ -218,7 +238,21 @@ internal static class ItemsHostReconciliation
         }
         itemsState.Items = next;
         itemsState.Source = source;
-        itemsState.HasElements = hasElements;
+        itemsState.ElementCount = elementCount;
+        itemsState.AnyThemeSensitive = themeSensitive;
+    }
+
+    private static bool HasChangedItemContext(ItemsHostState state, Reconciler reconciler)
+    {
+        if (!reconciler.HasActiveContextValues) return false;
+        // ItemsControl and third-party hosts need not expose their items as
+        // ordinary content children. Query the tracked roots, not the host's
+        // visual subtree, so unexpanded/unrealized items are covered as well.
+        foreach (var item in state.Items)
+            if (item is { Source: Element, Value: UIElement child }
+                && reconciler.ShouldDeclineSkip(child))
+                return true;
+        return false;
     }
 
     private static bool TryUpdateRawInPlace<TElement, TControl>(

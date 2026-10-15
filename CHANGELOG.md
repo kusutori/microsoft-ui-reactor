@@ -263,7 +263,7 @@ Conventions for contributors:
 
 ### Fixed
 
-- Flat `ItemsHost` children reconcile incrementally and generated Element slots receive terminal teardown while still parented (specs 047/058).
+- Flat `ItemsHost` children reconcile incrementally, unchanged source snapshots can skip the item walk when state/context/theme/forced-render guards allow it, and generated Element slots receive terminal teardown while still parented (specs 047/058).
 
 - **`RenderError` names the component that threw, and now reports every render
   error** (issue #1321, spec 044 §6.2.1). For class components the event reported

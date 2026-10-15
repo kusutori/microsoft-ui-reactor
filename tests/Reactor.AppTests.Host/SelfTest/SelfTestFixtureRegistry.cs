@@ -1823,6 +1823,8 @@ internal static class SelfTestFixtureRegistry
         "ItemsHost_Native_Reorder",
         "ItemsHost_Combo_Reopen",
         "ItemsHost_Expander_HeaderCleanup",
+        "ItemsHost_SameSource_StateAndForce",
+        "ItemsHost_SameSource_ThemeCache",
         "ProgressBarValue",
 
         // Spec 047 §4.3 — EventHandlerState split (§9.2) contract fixtures.
@@ -3863,6 +3865,8 @@ internal static class SelfTestFixtureRegistry
         "ItemsHost_Native_Reorder" => new ItemsHostReviewFixtures.NativeReorder(harness),
         "ItemsHost_Combo_Reopen" => new ItemsHostReviewFixtures.ComboReopen(harness),
         "ItemsHost_Expander_HeaderCleanup" => new ItemsHostReviewFixtures.ExpanderHeaderCleanup(harness),
+        "ItemsHost_SameSource_StateAndForce" => new ItemsHostSameSourceFixtures.StateAndForce(harness),
+        "ItemsHost_SameSource_ThemeCache" => new ItemsHostSameSourceFixtures.ThemeCache(harness),
         "ProgressBarValue" => new ProgressBarValueFixture.Execution(harness),
 
         // Spec 047 §4.3 — EventHandlerState split (§9.2) contract fixtures.
