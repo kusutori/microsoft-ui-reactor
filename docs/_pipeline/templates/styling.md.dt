@@ -223,9 +223,7 @@ hierarchy.
 
 Font-family resource keys require a `FontFamily` object, not a string:
 
-```csharp
-TextBlock("Code").Resources(r => r
-    .Set("ContentControlThemeFontFamily", new Microsoft.UI.Xaml.Media.FontFamily("Consolas")));
+```csharp snippet="styling/font-family-resource"
 ```
 
 Calling `Set(key, "Consolas")` would select the color-string overload instead.
