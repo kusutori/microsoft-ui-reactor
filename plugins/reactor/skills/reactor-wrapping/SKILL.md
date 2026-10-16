@@ -46,10 +46,11 @@ control property, the single-content/children slot, `On{Event}` callbacks, the
 `SettingsCard(...)` factory. `Setters` is always emitted as an escape hatch
 (`.Set(c => c.Foo = …)`) for anything not surfaced.
 
-The generator normally emits `ReactorApp.RegisterControlAssembly` in the element's
-static constructor, so a control library's
-`Themes/Generic.xaml` resolves before first realization (avoids the `0xC000027B`
-crash, spec 058 §9a).
+The generator emits `ReactorApp.TryRegisterControlAssembly(typeof(X).Assembly)`
+in the element's static constructor to discover a control library's metadata
+before first realization (spec 058 §9a). The `Try` call quietly returns `false`
+if the provider has been trimmed; a `0xC000027B` crash when the wrapped control
+is first realized is a symptom that explicit registration may be needed.
 
 For code-only Native AOT apps, implicit discovery of the toolkit provider can be
 trimmed. Explicitly construct and register its generated `XamlMetaDataProvider`

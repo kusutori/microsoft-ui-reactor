@@ -28,7 +28,7 @@ Conventions for contributors:
 
 ### Added
 
-- Optional `ItemsHost.SetCollection` and property-owned teardown via the three-callback `ImperativeBridged` overload (specs 047/058).
+- Optional `ItemsHost.SetCollection` and property-owned teardown via the three-callback `ImperativeBridged` overload ([control reconciler guide](docs/guide/control-reconciler-protocol.md)).
 
 - **`REACTOR_DYM_006`: color strings that render gray** (issue #1375, spec 061 §7.3). A new
   default-on **Warning** flags compile-time-constant color strings that `BrushHelper` can't
@@ -293,7 +293,7 @@ Conventions for contributors:
 
 ### Fixed
 
-- Flat `ItemsHost` children reconcile incrementally, unchanged source snapshots can skip the item walk when state/context/theme/forced-render guards allow it, and generated Element slots receive terminal teardown while still parented (specs 047/058).
+- Flat `ItemsHost` children reconcile incrementally, same-instance Element item sources honor dirty-state/context/theme/forced-render invalidation instead of skipping unconditionally, and generated Element slots receive terminal teardown while still parented ([control reconciler guide](docs/guide/control-reconciler-protocol.md)).
 
 - **Replacing a host's root no longer leaves the old root running** (issue #1326).
   `ReactorHost.Mount(...)` and `ReactorHostControl.Mount(...)` now retire the

@@ -80,7 +80,7 @@
 .PARAMETER MicroIterations
     Inner iterations per micro repetition (default 1000) over which each bench's
     mean ns/op and allocated bytes/op are averaged. The suite runs 23 benches
-    (the spec-047 M1&ndash;M14 set plus 3 supplementary) and the heaviest
+    (the spec-047 M1&ndash;M14 set plus 3 supplementary + IH1&ndash;IH6 ItemsHost benches) and the heaviest
     (M7&ndash;M9 reconcile a 1000-node tree per op) run >=120 us/op,
     so even 1000 iterations keep each per-rep mean >=120 ms &mdash; hundreds of
     thousands of times the Stopwatch floor &mdash; while letting each per-round

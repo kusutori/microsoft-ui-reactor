@@ -559,7 +559,7 @@ keep their existing sink. The framework supplies the WinRT exposure for
 its observable list with `GeneratedWinRTExposedExternalType`, including indirect
 Native AOT collection boundaries. This does not root a toolkit's XAML metadata;
 code-only Native AOT apps may also need explicit provider registration (see
-[AOT support](../aot-support.md)).
+[AOT support](https://github.com/microsoft/microsoft-ui-reactor/blob/main/docs/aot-support.md)).
 
 ## Pool integration
 
@@ -721,7 +721,7 @@ hatches a hand-coded handler would otherwise need:
 | `.ReferenceList<TTarget>(get, apply)` | One-way list of reference props; resolves currently-mounted cells in declaration order and rebuilds the control list. |
 | `.OneWayBridged(get, set, shouldWrite)` | One-way prop whose `set` lambda needs access to the reconciler (used by the button-family flyout port). |
 | `.Imperative(mount, update)` | Property-level escape hatch — the lambdas receive `(control, element)` and `(control, oldEl, newEl)` so an entry can express a diff the standard builders cannot. |
-| `.ImperativeBridged(mount, update)` | Same shape with `MountContext` / `UpdateContext` available, for bindings without owned child lifetime, such as RichTextBlock block rebuilds. |
+| `.ImperativeBridged(mount, update)` | Same shape with `MountContext` / `UpdateContext` available, for bindings without owned child lifetime. |
 | `.ImperativeBridged(mount, update, unmount)` | Adds property-owned teardown with an `UnmountContext`; unmount a secondary Element slot while parented, then detach it. Runs before descriptor `OnUnmount` and roots per-control ReactorState. The two-callback overload remains available for bindings without owned child lifetime. |
 
 Property-owned `unmount` callbacks run before the descriptor's `OnUnmount`,

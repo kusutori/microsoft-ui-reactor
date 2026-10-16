@@ -434,8 +434,7 @@ public sealed class ControlDescriptor<TElement, TControl>
     /// <summary>§14 Phase 3 finish — Engine (2). Bridged variant of
     /// <see cref="Imperative"/> — the lambdas receive the
     /// <see cref="MountContext"/> / <see cref="UpdateContext"/> so they can
-    /// call engine-internal helpers for bindings without owned child lifetime,
-    /// such as rebuilding a RichTextBlock's blocks.
+    /// call engine-internal helpers for bindings without owned child lifetime.
     ///
     /// <para>For an owned secondary Element slot, use
     /// <see cref="ImperativeBridged(Action{MountContext,TControl,TElement},Action{UpdateContext,TControl,TElement,TElement},Action{UnmountContext,TControl})"/>

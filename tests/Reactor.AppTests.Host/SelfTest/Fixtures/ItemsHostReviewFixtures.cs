@@ -1,4 +1,5 @@
 using Microsoft.UI.Reactor.Core;
+using Microsoft.UI.Reactor.Core.V1Protocol.Descriptor;
 using Microsoft.UI.Reactor.Wrappers;
 using Microsoft.UI.Xaml.Controls;
 using static Microsoft.UI.Reactor.Factories;
@@ -14,7 +15,7 @@ internal static class ItemsHostReviewFixtures
 {
     private static readonly Action Noop = static () => { };
 
-    internal sealed class ExpanderHeaderCleanup(Harness h) : SelfTestFixtureBase(h)
+    internal sealed class ExpanderHeaderCleanup(Harness h, bool useDescriptor = false) : SelfTestFixtureBase(h)
     {
         public override async Task RunAsync()
         {
@@ -29,6 +30,11 @@ internal static class ItemsHostReviewFixtures
                 }),
             };
             var reconciler = new Reconciler();
+            // Override only this reconciler; the public factory normally uses
+            // ExpanderHandler, so exercise the descriptor's own teardown too.
+            if (useDescriptor)
+                reconciler.RegisterHandler<ExpanderElement, Expander>(
+                    new DescriptorHandler<ExpanderElement, Expander>(ExpanderElement.Descriptor));
             var expander = (Expander)reconciler.Mount(element, Noop)!;
             H.SetContent(expander);
             H.Check("ItemsHost_ExpanderHeader_Realized", await Harness.WaitFor(() =>
@@ -88,6 +94,18 @@ internal static class ItemsHostReviewFixtures
             reconciler.UnmountChild(list);
             await Harness.Render();
             H.Check("ItemsHost_PlainEvent_NoTerminalCallback", calls == 0);
+            H.Check("ItemsHost_PlainEvent_TerminalItemsCleared", list.Items.Count == 0);
+
+            // Positive control: native Clear really raises SelectionChanged
+            // while the generated callback's element tag is still live.
+            var live = (ListBox)reconciler.Mount(element, Noop)!;
+            H.SetContent(live);
+            await Harness.Render();
+            live.SelectedIndex = 0;
+            calls = 0;
+            live.Items.Clear();
+            H.Check("ItemsHost_PlainEvent_LiveClearRaisesCallback", calls == 1 && live.Items.Count == 0);
+            reconciler.UnmountChild(live);
         }
     }
 

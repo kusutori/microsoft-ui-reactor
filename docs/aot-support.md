@@ -22,6 +22,19 @@ This page enumerates what works, what doesn't, and what's planned. **If you publ
 
 ## What does *not* work under AOT (today)
 
+These subsystems compile cleanly with `IsAotCompatible=true` (the warnings are suppressed), but the suppressions cover real reflection that will throw at runtime under `PublishAot=true`. Don't rely on them in an AOT-published app until they're rebuilt on source generators.
+
+| Subsystem | What breaks | Tracking |
+|---|---|---|
+| **PropertyGrid auto-discovery** | `TypeRegistry.Resolve`, `ReflectionTypeMetadataProvider` walk public properties, build init-only setters, and instantiate editors via `Activator.CreateInstance`. Manually-registered metadata is fine; auto-discovery from a runtime type is not. | Issue #70 |
+| **PropertyGrid array editor** | `Array.CreateInstance` is annotated `RequiresDynamicCode`. Array-typed property editors won't work AOT. | Issue #70 |
+| **DataGrid `AutoColumns<T>`** | Reflects over `T`'s public properties via `TypeRegistry`. The `T` parameter is annotated `[DynamicallyAccessedMembers(PublicProperties)]` so the trimmer keeps the members, but `AutoColumns` ultimately funnels into `TypeRegistry.Resolve`, which is `RequiresUnreferencedCode`. Use explicit `Column<T,V>(…)` definitions instead. | Issue #70 |
+| **`UseObservable` on POCOs** | `ObservableTreeTracker` walks public properties via reflection to subscribe to INPC. Observables built explicitly (`Observable<T>`, `IObservableCollection`) are fine; the implicit-INPC path is not. | Issue #70 |
+| **Form validation** | `FormField`'s default editor resolution goes through `TypeRegistry`. Same caveat as PropertyGrid. | Issue #70 |
+| **Component discovery (`ReactorApp.Run<TApp>` reflection paths)** | The instantiation of `TApp` itself is annotated and works. Devtools component enumeration is available only when the app opts into `Reactor.DevtoolsSupport` at build time and launches with `--devtools`; leave the switch off for retail/AOT builds. | Issue #70 |
+| **Devtools `properties` / `setProperty` DP discovery** | The tools locate `DependencyProperty` statics by reflection, and the trimmer keeps no reflection metadata for them unless something roots the members — so under AOT the lookups find nothing. Not specific to WinUI's CsWinRT-projected static properties: a C#-authored DP *field* on a custom control is equally undiscoverable. Works under JIT, which is where the devtools inner loop lives. The tool reports the likely cause rather than an empty result. See [Devtools DependencyProperty discovery](#devtools-dependencyproperty-discovery) for the measured cost of fixing it. Affected fixture: `Devtools_PropertyToolsDpDiscovery`. | Issue #1109 |
+| **Third-party-assembly XAML metadata (Issue #142 fixtures)** | Built-in WinUI controls work under AOT now. What remains is `{TemplateBinding}` against private DPs in a third-party assembly that ships *no* `.xaml` file: the XAML compiler only emits an `IXamlMetadataProvider` for projects that have at least one `.xaml`, and AOT trims any implicit metadata path. Affected fixtures: `Issue142_CustomControlPrivateDp_Renders`, `Issue142_ThirdPartyControlPrivateDp_Renders`. The library-author workaround is to register a hand-written `IXamlMetadataProvider` via `RegisterControlAssembly`. The same trim hits a compiled `.xaml` page inside a `ReactorApp.Run` app with no `App.xaml`: `ReactorApplication` finds the app's generated provider only by reflecting over the entry assembly, nothing roots it, and AOT removes it, so the page fails to parse (`Hosting_HostControlXamlComponentType`). A vanilla WinUI app is unaffected: its `App` *is* the provider. | Issue #142 |
+
 ### Code-only apps wrapping toolkit controls
 
 An observable `ItemsHost` list has generated WinRT exposure, but that only covers
@@ -38,19 +51,6 @@ ReactorApp.RegisterControlAssembly(
 The concrete provider name depends on the library. The SettingsExpander selftest
 uses this registration explicitly; passing it is not proof of automatic metadata
 discovery under trimming.
-
-These subsystems compile cleanly with `IsAotCompatible=true` (the warnings are suppressed), but the suppressions cover real reflection that will throw at runtime under `PublishAot=true`. Don't rely on them in an AOT-published app until they're rebuilt on source generators.
-
-| Subsystem | What breaks | Tracking |
-|---|---|---|
-| **PropertyGrid auto-discovery** | `TypeRegistry.Resolve`, `ReflectionTypeMetadataProvider` walk public properties, build init-only setters, and instantiate editors via `Activator.CreateInstance`. Manually-registered metadata is fine; auto-discovery from a runtime type is not. | Issue #70 |
-| **PropertyGrid array editor** | `Array.CreateInstance` is annotated `RequiresDynamicCode`. Array-typed property editors won't work AOT. | Issue #70 |
-| **DataGrid `AutoColumns<T>`** | Reflects over `T`'s public properties via `TypeRegistry`. The `T` parameter is annotated `[DynamicallyAccessedMembers(PublicProperties)]` so the trimmer keeps the members, but `AutoColumns` ultimately funnels into `TypeRegistry.Resolve`, which is `RequiresUnreferencedCode`. Use explicit `Column<T,V>(…)` definitions instead. | Issue #70 |
-| **`UseObservable` on POCOs** | `ObservableTreeTracker` walks public properties via reflection to subscribe to INPC. Observables built explicitly (`Observable<T>`, `IObservableCollection`) are fine; the implicit-INPC path is not. | Issue #70 |
-| **Form validation** | `FormField`'s default editor resolution goes through `TypeRegistry`. Same caveat as PropertyGrid. | Issue #70 |
-| **Component discovery (`ReactorApp.Run<TApp>` reflection paths)** | The instantiation of `TApp` itself is annotated and works. Devtools component enumeration is available only when the app opts into `Reactor.DevtoolsSupport` at build time and launches with `--devtools`; leave the switch off for retail/AOT builds. | Issue #70 |
-| **Devtools `properties` / `setProperty` DP discovery** | The tools locate `DependencyProperty` statics by reflection, and the trimmer keeps no reflection metadata for them unless something roots the members — so under AOT the lookups find nothing. Not specific to WinUI's CsWinRT-projected static properties: a C#-authored DP *field* on a custom control is equally undiscoverable. Works under JIT, which is where the devtools inner loop lives. The tool reports the likely cause rather than an empty result. See [Devtools DependencyProperty discovery](#devtools-dependencyproperty-discovery) for the measured cost of fixing it. Affected fixture: `Devtools_PropertyToolsDpDiscovery`. | Issue #1109 |
-| **Third-party-assembly XAML metadata (Issue #142 fixtures)** | Built-in WinUI controls work under AOT now. What remains is `{TemplateBinding}` against private DPs in a third-party assembly that ships *no* `.xaml` file: the XAML compiler only emits an `IXamlMetadataProvider` for projects that have at least one `.xaml`, and AOT trims any implicit metadata path. Affected fixtures: `Issue142_CustomControlPrivateDp_Renders`, `Issue142_ThirdPartyControlPrivateDp_Renders`. The library-author workaround is to register a hand-written `IXamlMetadataProvider` via `RegisterControlAssembly`. The same trim hits a compiled `.xaml` page inside a `ReactorApp.Run` app with no `App.xaml`: `ReactorApplication` finds the app's generated provider only by reflecting over the entry assembly, nothing roots it, and AOT removes it, so the page fails to parse (`Hosting_HostControlXamlComponentType`). A vanilla WinUI app is unaffected: its `App` *is* the provider. | Issue #142 |
 
 ## Devtools DependencyProperty discovery
 
