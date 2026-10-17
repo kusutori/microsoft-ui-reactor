@@ -1894,6 +1894,10 @@ Equals(object obj) → bool
 GetHashCode() → int
 ToString() → string
 
+### class DeclarativeDataTemplate
+DataTemplate Template { get; }
+Dispose() → void
+
 ### class DeepLinkDiagnosticEvent
 new(string path, bool matched, int routeCount)
 bool Matched { get; }
@@ -5802,6 +5806,9 @@ GetSelectionMode() → TreeViewSelectionMode
 InvokeExpanding(object item) → void
 InvokeItemInvoked(object item) → void
 ToString() → string
+
+### static class Templates
+Data(Func<Element> build) → DeclarativeDataTemplate
 
 ### record TextBlockElement
 new(string Content)

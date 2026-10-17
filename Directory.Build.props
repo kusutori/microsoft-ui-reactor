@@ -21,7 +21,7 @@
     shape here.
   -->
   <PropertyGroup>
-    <WindowsAppSDKVersion>2.2.0</WindowsAppSDKVersion>
+    <WindowsAppSDKVersion>2.5.4-experimental</WindowsAppSDKVersion>
     <!--
       Windows App SDK 2.0 split the monolithic Microsoft.WindowsAppSDK metapackage
       into independently-versioned sub-packages. Framework-dependent projects
@@ -33,7 +33,7 @@
       nuspec dependency on Microsoft.WindowsAppSDK.WinUI for the target version and
       pin that exact value here. (spec 063 §3)
     -->
-    <WindowsAppSDKWinUIVersion>2.2.1</WindowsAppSDKWinUIVersion>
+    <WindowsAppSDKWinUIVersion>2.3.10-experimental</WindowsAppSDKWinUIVersion>
     <Win2DVersion>1.4.0</Win2DVersion>
     <WindowsAppSDKSelfContained>false</WindowsAppSDKSelfContained>
 

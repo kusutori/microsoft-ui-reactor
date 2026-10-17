@@ -295,3 +295,7 @@ trim_trailing_whitespace = unset
 [docs/guide/**.md]
 trim_trailing_whitespace = false
 insert_final_newline = unset
+
+# Local template prototype: experimental SDK metadata referenced by generated code.
+[**/XamlTypeInfo.g.cs]
+dotnet_diagnostic.CS8305.severity = none
