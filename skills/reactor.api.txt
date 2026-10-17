@@ -336,6 +336,7 @@ HyperlinkButtonElement.Command(Command command) → HyperlinkButtonElement
 HyperlinkButtonElement.NavigateUri(Uri uri) → HyperlinkButtonElement
 HyperlinkButtonElement.Set(Action<HyperlinkButton> configure) → HyperlinkButtonElement
 HyperlinkButtonElement.TextLink() → HyperlinkButtonElement
+IconElement.Bind(DependencyProperty property, Binding binding) → IconElement
 IconElement.Set(Action<IconElement> configure) → IconElement
 ImageElement.ImageFailed(Action<string> handler) → ImageElement
 ImageElement.ImageOpened(Action handler) → ImageElement
@@ -782,6 +783,7 @@ TemplatedListViewElement<T>.SelectionChanged<T>(Action<IReadOnlyList<T>> handler
 TemplatedListViewElement<T>.Set<T>(Action<ListView> configure) → TemplatedListViewElement<T>
 TemplatedTreeViewElement<T>.Expanding<T>(Action<T> handler) → TemplatedTreeViewElement<T>
 TemplatedTreeViewElement<T>.ItemInvoked<T>(Action<T> handler) → TemplatedTreeViewElement<T>
+TextBlockElement.Bind(DependencyProperty property, Binding binding) → TextBlockElement
 TextBlockElement.Bold() → TextBlockElement
 TextBlockElement.CharacterSpacing(int spacing) → TextBlockElement
 TextBlockElement.FontFamily(FontFamily family) → TextBlockElement

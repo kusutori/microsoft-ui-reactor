@@ -6,19 +6,25 @@ change. Requires the experimental WinUI code-based DataTemplate constructor
 recipes and release guidance have deliberately not been migrated.
 
 ```csharp
+using Microsoft.UI.Reactor;
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Data;
+using static Microsoft.UI.Reactor.Factories;
+using Xaml = Microsoft.UI.Xaml.Controls;
+
 var owner = Templates.Data(static () =>
     HStack(6,
         Icon(FontIcon("", "Segoe Fluent Icons", 16))
-            .Set(icon => icon.SetBinding(FontIcon.GlyphProperty, new Binding
+            .Bind(Xaml.FontIcon.GlyphProperty, new Binding
             {
                 Path = new PropertyPath("Glyph"),
-            })),
+            }),
         TextBlock("")
             .VAlign(VerticalAlignment.Center)
-            .Set(text => text.SetBinding(TextBlock.TextProperty, new Binding
+            .Bind(Xaml.TextBlock.TextProperty, new Binding
             {
                 Path = new PropertyPath("Label"),
-            }))));
+            })));
 
 // Assign owner.Template to native template properties. Keep owner stable.
 // After detaching consumers, call owner.Dispose() on the UI thread.
@@ -29,6 +35,15 @@ descriptors mount the Element tree; there is no parallel control-conversion
 table and no ReactorHost or render loop per item. WinUI owns DataContext,
 bindings and data-object notifications. New realization means new controls,
 while a recycled visual keeps its bindings and receives the new DataContext.
+
+`Bind(DependencyProperty, Binding)` currently has overloads for TextBlockElement
+and IconElement, the actual use cases in this experiment. Each simply appends a
+native SetBinding call to the existing typed Set pipeline. No new binding engine,
+data lookup or reflection is introduced. Set/Bind calls retain their order; a
+later Set can override the value. The dependency property must match the native
+control (including the subtype selected by IconData). This escape hatch retains
+Set's lifecycle semantics; removing a Bind from a later declaration is not a
+declarative ClearValue contract. Bindable metadata requirements remain unchanged.
 
 This first prototype accepts Stack/Grid/Border layouts, TextBlock, Icon and
 Empty children (a nonempty root is required). Other element types are rejected
