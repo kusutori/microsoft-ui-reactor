@@ -9,6 +9,7 @@ internal static class SelfTestFixtureRegistry
 {
     public static readonly string[] AllFixtures =
     [
+        "JumpList_NativeInterop",
         "SourceMapReadPath_Enabled",
         "HostDiag_WindowHostIsListedAndBoundariesAreTagged",
         "HostDiag_FlagOffLeavesBoundariesUntagged",
@@ -2151,6 +2152,7 @@ internal static class SelfTestFixtureRegistry
 
     public static SelfTestFixtureBase? Create(string name, Harness harness) => name switch
     {
+        "JumpList_NativeInterop" => new JumpListNativeInteropFixture(harness),
         "HarnessGuard_ClickButtonFailsLoudly" => new HarnessGuardFixtures.ClickButtonFailsLoudly(harness),
         "ErrorBoundary_CatchesRenderError" => new ErrorBoundaryFixtures.CatchesRenderError(harness),
         "ErrorBoundary_Recovery" => new ErrorBoundaryFixtures.Recovery(harness),

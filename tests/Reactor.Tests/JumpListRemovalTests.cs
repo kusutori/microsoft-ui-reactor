@@ -122,6 +122,7 @@ public partial class JumpListRemovalTests
         // property or changing any shell-owned destination tracking data.
         var unicode = "app://device/设备?name=\"日本語\"";
         var longArguments = "open " + new string('x', 2048);
+        using var apartment = JumpListComInterop.InitializeApartment();
         var collection = JumpListComInterop.BuildShellLinkArray(new[]
         {
             JumpListItem.ForUri("Unicode", unicode),
@@ -132,7 +133,7 @@ public partial class JumpListRemovalTests
         });
         try
         {
-            var array = (JumpListComInterop.IObjectArray)collection;
+            var array = (JumpListComInterop.IObjectArray)collection.Value;
             var path = Assert.IsType<string>(Environment.ProcessPath);
             var actual = JumpListComInterop.ReadRemovedArguments(array, path.ToUpperInvariant());
             Assert.Equal(3, actual.Count);
@@ -142,12 +143,13 @@ public partial class JumpListRemovalTests
             Assert.Empty(JumpListComInterop.ReadRemovedArguments(array, path + ".other.exe"));
             Assert.Empty(JumpListComInterop.ReadRemovedArguments(array, ""));
         }
-        finally { Marshal.ReleaseComObject(collection); }
+        finally { collection.Dispose(); }
     }
 
     [Fact]
     public void Native_Shell_Link_Properties_Contain_The_Title_And_Separator_Marker()
     {
+        using var apartment = JumpListComInterop.InitializeApartment();
         var collection = JumpListComInterop.BuildShellLinkArray(new[]
         {
             JumpListItem.ForUri("日本語 document", "app://file"),
@@ -155,7 +157,7 @@ public partial class JumpListRemovalTests
         });
         try
         {
-            var array = (JumpListComInterop.IObjectArray)collection;
+            var array = (JumpListComInterop.IObjectArray)collection.Value;
             var titleKey = new PropertyKey(new Guid("F29F85E0-4FF9-1068-AB91-08002B27B3D9"), 2);
             var separatorKey = new PropertyKey(new Guid("9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3"), 6);
             AssertProperty(array, 0, titleKey, value =>
@@ -169,31 +171,25 @@ public partial class JumpListRemovalTests
                 Assert.Equal(0xffff, value.Data.ToInt64() & 0xffff); // VARIANT_TRUE, not BOOL TRUE.
             });
         }
-        finally { Marshal.ReleaseComObject(collection); }
+        finally { collection.Dispose(); }
     }
 
-    private static void AssertProperty(JumpListComInterop.IObjectArray array, uint index,
+    private static unsafe void AssertProperty(JumpListComInterop.IObjectArray array, uint index,
         PropertyKey key, Action<PropVariant> assert)
     {
-        var iid = typeof(IPropertyStore).GUID;
-        Marshal.ThrowExceptionForHR(array.GetAt(index, ref iid, out var entry));
+        var iid = new Guid("886d8eeb-8cf2-4446-8d02-cdba1dbdcf99");
+        Marshal.ThrowExceptionForHR(array.GetAt(index, in iid, out var entry));
         try
         {
-            Marshal.ThrowExceptionForHR(((IPropertyStore)entry).GetValue(ref key, out var value));
+            // Independent native IPropertyStore::GetValue ABI (IUnknown slots
+            // 0-2, GetCount 3, GetAt 4, GetValue 5), not the product's projection.
+            var getValue = (delegate* unmanaged[Stdcall]<nint, PropertyKey*, PropVariant*, int>)(*(nint**)entry)[5];
+            PropVariant value = default;
+            Marshal.ThrowExceptionForHR(getValue(entry, &key, &value));
             try { assert(value); }
             finally { Marshal.ThrowExceptionForHR(PropVariantClear(ref value)); }
         }
-        finally { Marshal.ReleaseComObject(entry); }
-    }
-
-    // Independent ABI reader: verifies the properties Windows receives, not
-    // the managed fields used by the implementation to construct them.
-    [ComImport, Guid("886d8eeb-8cf2-4446-8d02-cdba1dbdcf99"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-    private interface IPropertyStore
-    {
-        [PreserveSig] int GetCount(out uint count);
-        [PreserveSig] int GetAt(uint index, out PropertyKey key);
-        [PreserveSig] int GetValue(ref PropertyKey key, out PropVariant value);
+        finally { Marshal.Release(entry); }
     }
 
     [StructLayout(LayoutKind.Sequential, Pack = 4)]

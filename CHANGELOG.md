@@ -363,6 +363,12 @@ Conventions for contributors:
 
 ### Fixed
 
+- **Unpackaged Jump Lists now use source-generated COM interop under Native AOT.**
+  Shell link activation, property stores and removal queries no longer depend on
+  built-in COM marshalling. Worker calls initialize their COM apartment and
+  release transaction-owned interfaces deterministically. See the
+  [Jump list guide](docs/guide/windows.md#jump-list) (spec 036 §11.3).
+
 - **Replacing a host's root no longer leaves the old root running** (issue #1326).
   `ReactorHost.Mount(...)` and `ReactorHostControl.Mount(...)` now retire the
   outgoing root before installing the new one: its effect cleanups run, and a
