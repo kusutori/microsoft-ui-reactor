@@ -151,6 +151,10 @@ internal static class OverlayLifecycle
         return live.Dialog;
     }
 
+    /// <summary>The dialog currently showing for <paramref name="anchor"/>, without taking it.</summary>
+    internal static WinUI.ContentDialog? PeekLiveContentDialog(FrameworkElement anchor)
+        => s_liveDialogs.TryGetValue(anchor, out var live) ? live.Dialog : null;
+
     private static void ShowContentDialog(Reconciler reconciler, ContentDialogElement cdEl, FrameworkElement anchor, Action requestRerender)
     {
         // Source XamlRoot from the placeholder so the dialog routes to the
@@ -261,7 +265,7 @@ internal static class OverlayLifecycle
         };
         if (cdEl.SecondaryButtonText is not null) dialog.SecondaryButtonText = cdEl.SecondaryButtonText;
         if (cdEl.CloseButtonText is not null) dialog.CloseButtonText = cdEl.CloseButtonText;
-        dialog.Content = reconciler.Mount(cdEl.Content, requestRerender);
+        dialog.Content = reconciler.MountDialogContent(anchor, cdEl.Content, requestRerender);
         if (xamlRoot is not null) dialog.XamlRoot = xamlRoot;
         TagDialogForDiagnostics(dialog, cdEl);
         // Resolve callbacks through the anchor's live Tag the way Flyout/Popup do,
@@ -273,6 +277,14 @@ internal static class OverlayLifecycle
         var liveDialog = new LiveContentDialog(dialog, theme);
         // Publish before showing so the very next render can reach the dialog.
         s_liveDialogs.AddOrUpdate(anchor, liveDialog);
+        // The visible dialog describes the element too, not only its collapsed placeholder: an
+        // out-of-process inspector sees the dialog. A deferred (Loaded) open finds the
+        // placeholder already published; a mount-time open is covered by the reconciler, which
+        // mirrors the placeholder's value onto the live dialog when it publishes it.
+        if (global::Microsoft.UI.Reactor.Hosting.ReactorFeatures.DevtoolsSupported
+            && Diagnostics.ReactorSourcePublisher.IsEnabled
+            && anchor.GetValue(Diagnostics.ReactorDiagnostics.SourceProperty) is string published)
+            dialog.SetValue(Diagnostics.ReactorDiagnostics.SourceProperty, published);
         // True when this call still owns the placeholder's tracking entry at
         // close time. False once unmount teardown has taken it, or once a
         // re-open has installed a newer dialog over it.
@@ -295,8 +307,9 @@ internal static class OverlayLifecycle
             ownsClose = s_liveDialogs.TryGetValue(anchor, out var tracked) && ReferenceEquals(tracked, liveDialog);
             if (ownsClose) s_liveDialogs.Remove(anchor);
             // A caller can keep the dialog through .Set(...); a closed dialog must not keep
-            // resolving to (and keeping alive) its element. No-op when it was never tagged.
-            Reconciler.SetElementTag(dialog, null);
+            // resolving to (and keeping alive) its element, nor keep the published
+            // ReactorSource that Native AOT's GetSource falls back to. No-op when untagged.
+            Reconciler.ClearElementTag(dialog);
             // Unmount the content: it was mounted at open time and nothing else
             // tears it down, so every open/close cycle would otherwise leak its
             // component cleanups. Already null when teardown took ownership.

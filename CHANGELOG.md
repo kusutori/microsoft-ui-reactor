@@ -87,6 +87,29 @@ Conventions for contributors:
   `Reconciler.GetElementTag` finds each component boundary. Provisional API for
   external inspectors such as `winapp devtools`.
 
+- **Inspect Reactor apps with no managed agent, Native AOT included: `ReactorSource`
+  on every control** (issue #1341, spec 010):
+  - `ReactorDiagnostics.SourceProperty` (`"ReactorSource"` in XamlDiagnostics) is an
+    attached string published on every realized control in diagnostics mode. It is
+    readable out of process with no managed code: call site, owner component,
+    element kind, key, mounted component, host root, declared name and hook names,
+    in a versioned `|`-separated grammar (`v=1`). Paths are relative to the
+    project (XAML parity); never absolute.
+  - `SourceLocation.DeclaredName`: the identifier an element was assigned to, like
+    `x:Name`. The source-map generator also records each component render's hook
+    variables (`hooks=0:count@36;…`).
+  - Gating: new MSBuild property `ReactorDiagnostics` (Debug default, `true` for a
+    Release / Native AOT devtools build; turns on the trimmable
+    `Reactor.DevtoolsSupport` switch and implies `ReactorSourceMap`) plus
+    `REACTOR_DIAGNOSTICS=1` at launch. Without the switch, trimmed and AOT builds
+    contain none of it; with it but without the variable, nothing is published.
+  - Source-mapped builds share one call-site bucket per call site instead of
+    one per element. Under Native AOT diagnostics mode, elements whose only extra
+    is their call site are not tagged (no managed agent can read the tag);
+    `ReactorSourceMap.GetSource` resolves them from the published value.
+  - **Changed:** Debug builds now turn `Reactor.DevtoolsSupport` on by default
+    (through `ReactorDiagnostics`); opt out with `-p:ReactorDiagnostics=false`.
+
 - **`ReactorHostControl` can be declared in XAML.** It gains a public parameterless
   constructor (the XAML compiler rejected the old optional-parameter one with
   `WMC0100`) and a `ComponentType` property, so a hybrid page can write
@@ -219,6 +242,21 @@ Conventions for contributors:
 
 ### Changed
 
+- **Picker helpers moved to `Microsoft.Windows.Storage.Pickers` and renamed as non-hooks**
+  (issue #1374, spec 054 §8.3). Breaking: `UseFilePickerAsync` / `UseMultipleFilesPickerAsync`
+  / `UseFolderPickerAsync` / `UseSaveFilePickerAsync` are now `PickFileAsync` /
+  `PickMultipleFilesAsync` / `PickFolderAsync` / `PickSaveFileAsync` (plus the new
+  `PickMultipleFoldersAsync`) on `RenderContext` and `Component`, and return path-based
+  `PickFileResult` / `PickFolderResult` instead of `StorageFile` / `StorageFolder`. Call them
+  directly from event handlers; the hook-rules analyzer no longer flags them. Option enums
+  come from `Microsoft.Windows.Storage.Pickers`; `SaveFilePickerOptions.FileTypeChoices` is an
+  ordered `IReadOnlyList<FileTypeChoice>` (order sets the default entry); `Title`,
+  `SuggestedFolder`, `SuggestedStartFolder`, `InitialFileTypeIndex`, open-picker
+  `FileTypeChoices`, `DefaultFileExtension` and `ShowOverwritePrompt` are new;
+  `FolderPickerOptions.FileTypeFilter` and `SaveFilePickerOptions.SuggestedSaveFile` are
+  removed. The dialog is owned by the window whose host rendered the component (previously
+  whichever window was most recently active, which with several windows picked the wrong one
+  and threw after any window closed), and the pickers now work in elevated apps.
 - **The doc pipeline moved out of `mur`, and doc screenshots are captured with winapp's
   Windows Graphics Capture.** `mur docs` is now `dotnet run --project tools/Reactor.DocPipeline --`
   (`compile`, `check-tier`, `render-diagrams`, `new-diagram`; same options). It is a contributor
