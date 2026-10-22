@@ -241,7 +241,7 @@ internal static class ChildReconciler
                         || Reconciler.CallSiteChangedOnSkip(oldEl, newEl))
                     && (existingControl ??= children.Get(i)) is FrameworkElement fe)
                 {
-                    Reconciler.RefreshSkippedChildState(fe, oldEl, newEl);
+                    reconciler.RefreshSkippedChildState(fe, oldEl, newEl);
                 }
                 return;
             }
@@ -250,11 +250,11 @@ internal static class ChildReconciler
         if (reconciler.CanUpdate(oldEl, newEl))
         {
             existingControl ??= children.Get(i);
-            var replacement = reconciler.UpdateChild(oldEl, newEl, existingControl, requestRerender);
+            var replacement = reconciler.UpdateChildTracked(oldEl, newEl, existingControl, requestRerender, out var unmountedByUpdate);
             if (replacement is not null)
             {
                 // Child type changed at runtime — replace in place
-                reconciler.UnmountChild(existingControl);
+                if (!unmountedByUpdate) reconciler.UnmountChild(existingControl);
                 children.Replace(i, replacement);
             }
         }
@@ -332,7 +332,7 @@ internal static class ChildReconciler
                     && prefixLen < childCount
                     && (existingControl ??= children.Get(prefixLen)) is FrameworkElement fe)
                 {
-                    Reconciler.RefreshSkippedChildState(fe, oldEl, newEl);
+                    reconciler.RefreshSkippedChildState(fe, oldEl, newEl);
                 }
                 prefixLen++;
                 continue;
@@ -342,10 +342,10 @@ internal static class ChildReconciler
             if (prefixLen < childCount)
             {
                 existingControl ??= children.Get(prefixLen);
-                var replacement = reconciler.UpdateChild(oldEl, newEl, existingControl, requestRerender);
+                var replacement = reconciler.UpdateChildTracked(oldEl, newEl, existingControl, requestRerender, out var unmountedByUpdate);
                 if (replacement is not null)
                 {
-                    reconciler.UnmountChild(existingControl);
+                    if (!unmountedByUpdate) reconciler.UnmountChild(existingControl);
                     children.Replace(prefixLen, replacement);
                 }
             }
@@ -386,7 +386,7 @@ internal static class ChildReconciler
                     && panelIdx < childCount
                     && (existingControl ??= children.Get(panelIdx)) is FrameworkElement fe)
                 {
-                    Reconciler.RefreshSkippedChildState(fe, oldEl, newEl);
+                    reconciler.RefreshSkippedChildState(fe, oldEl, newEl);
                 }
                 suffixLen++;
                 continue;
@@ -395,10 +395,10 @@ internal static class ChildReconciler
             if (panelIdx >= 0 && panelIdx < childCount)
             {
                 existingControl ??= children.Get(panelIdx);
-                var replacement = reconciler.UpdateChild(oldEl, newEl, existingControl, requestRerender);
+                var replacement = reconciler.UpdateChildTracked(oldEl, newEl, existingControl, requestRerender, out var unmountedByUpdate);
                 if (replacement is not null)
                 {
-                    reconciler.UnmountChild(existingControl);
+                    if (!unmountedByUpdate) reconciler.UnmountChild(existingControl);
                     children.Replace(panelIdx, replacement);
                 }
             }
@@ -765,14 +765,16 @@ internal static class ChildReconciler
             // that adds a CanSkipUpdate fast-path here MUST mirror Reconciler.Update's skip arm
             // (ApplyThemeBindings + ApplyResourceOverrides) or it will re-introduce the #701/#675
             // staleness — see Issue675ResourceOverrideSkipFixtures.KeyedMiddleReorderReResolves.
-            var replacement = _reconciler.UpdateChild(
+            var existing = _children.Get(panelIdx);
+            var replacement = _reconciler.UpdateChildTracked(
                 _oldChildren[_oldStart + oldRelIdx],
                 _newChildren[_newStart + newIdx],
-                _children.Get(panelIdx),
-                _requestRerender);
+                existing,
+                _requestRerender,
+                out var unmountedByUpdate);
             if (replacement is not null)
             {
-                _reconciler.UnmountChild(_children.Get(panelIdx));
+                if (!unmountedByUpdate) _reconciler.UnmountChild(existing);
                 _children.Replace(panelIdx, replacement);
             }
         }

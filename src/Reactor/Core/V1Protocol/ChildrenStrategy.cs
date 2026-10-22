@@ -147,7 +147,7 @@ public sealed record ItemsHost<TElement, TControl>(
     /// the legacy unchanged-list fast path. On a structural update, matched raw
     /// value-equal instances are retained; Id-equal objects with changed payloads
     /// are replaced. Element children follow panel skip rules: dirty paths,
-    /// changed context, theme sensitivity and force-rendering decline the skip.
+    /// changed context, theme sensitivity, resource refresh and force-rendering decline the skip.
     /// Defaults to object.Equals.</summary>
     public Func<object?, object?, bool>? ItemEquals { get; init; }
 
@@ -347,10 +347,22 @@ public sealed record TreeChildren<TElement, TControl>(
 {
     void IItemsBinderStrategy.Bind(FrameworkElement control, Element? oldElement, Element element, Reconciler reconciler, Action requestRerender, bool isMount)
     {
-        _ = oldElement; // positional rebuild reads only the new tree
         var tree = (TControl)control;
         var nodes = GetNodes((TElement)element);
         bool hasContentElements = HasAnyContentElement(nodes);
+
+        // A resource-refresh pass (Theme.NotifyResourcesChanged) updates every element, even an
+        // unchanged TreeView that is otherwise skipped. When the node tree has the same shape
+        // (the same array, or a fresh but equivalent one from the DSL), refresh mounted node
+        // content in place rather than rebuilding, which would reset expansion, selection and
+        // descendant state.
+        if (!isMount && reconciler.ResourceRefreshActive
+            && oldElement is TElement oldTyped && GetNodes(oldTyped) is var oldNodes && SameShape(oldNodes, nodes))
+        {
+            if (hasContentElements)
+                RefreshTreeContent(tree.RootNodes, oldNodes, nodes, reconciler, requestRerender);
+            return;
+        }
 
         if (isMount)
         {
@@ -407,6 +419,51 @@ public sealed record TreeChildren<TElement, TControl>(
         return node;
     }
 #pragma warning restore CS0618
+
+    // Same node structure: equal text, expansion and children, and content elements in the same
+    // places. Arrays are compared by shape, not reference, because the DSL builds fresh ones.
+    private static bool SameShape(IReadOnlyList<TreeViewNodeData> a, IReadOnlyList<TreeViewNodeData> b)
+    {
+        if (ReferenceEquals(a, b)) return true;
+        if (a.Count != b.Count) return false;
+        for (int i = 0; i < a.Count; i++)
+        {
+            var x = a[i];
+            var y = b[i];
+#pragma warning disable CS0618
+            if (x.Content != y.Content || x.IsExpanded != y.IsExpanded
+                || (x.ContentElement is null) != (y.ContentElement is null)
+                || (x.Children is null) != (y.Children is null))
+                return false;
+#pragma warning restore CS0618
+            if (x.Children is not null && !SameShape(x.Children, y.Children!)) return false;
+        }
+        return true;
+    }
+
+    private static void RefreshTreeContent(
+        IList<WinUI.TreeViewNode> treeNodes, IReadOnlyList<TreeViewNodeData> oldData,
+        IReadOnlyList<TreeViewNodeData> newData, Reconciler reconciler, Action requestRerender)
+    {
+        for (int i = 0; i < treeNodes.Count && i < newData.Count; i++)
+        {
+            var node = treeNodes[i];
+            var o = oldData[i];
+            var d = newData[i];
+#pragma warning disable CS0618
+            if (d.ContentElement is { } content)
+            {
+                // Either side may be Empty, which mounts nothing: reconcile against whatever is
+                // there (possibly nothing) and take the result even when it is null.
+                var existing = node.Content as UIElement;
+                var next = reconciler.ReconcileV1Child(o.ContentElement, content, existing, requestRerender);
+                if (!ReferenceEquals(existing, next)) node.Content = next;
+            }
+#pragma warning restore CS0618
+            if (d.Children is not null && o.Children is not null)
+                RefreshTreeContent(node.Children, o.Children, d.Children, reconciler, requestRerender);
+        }
+    }
 
     private static void UnmountTreeContent(IList<WinUI.TreeViewNode> nodes, Reconciler reconciler)
     {

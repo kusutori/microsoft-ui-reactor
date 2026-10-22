@@ -241,12 +241,16 @@ strategy is a Reactor-internals task; adding a new handler that
 items retain their identity across moves, while unkeyed elements match by
 source position. Element children follow the same skip rules as panel children:
 an unchanged child is skipped unless it is on a dirty path, consumes changed
-context, is theme-sensitive, or is force-rendered. Raw values use
+context, is theme-sensitive, participates in a resource refresh, or is force-rendered. Raw values use
 `ItemEquals` (or `object.Equals`). Insertions and removals update the sink incrementally rather
 than clearing and rebuilding it. Removed Element controls are unmounted
 while still parented, then detached; the host owns their terminal unmount.
 Raw-only lists retain the unchanged-list fast path. Element in-place matches
 avoid rebuilding the collection while retaining descendant update rules.
+`Theme.NotifyResourcesChanged()` also revisits retained Element items through
+their tracked controls, including components whose theme bindings are inside
+their render bodies. It does not rebuild the native collection or reset selection;
+raw-only item lists can retain their no-op fast paths.
 For raw values, a positionally equal list retains existing instances;
 structural updates retain value-equal instances but refresh Id-equal objects
 whose payload differs by `object.Equals`.

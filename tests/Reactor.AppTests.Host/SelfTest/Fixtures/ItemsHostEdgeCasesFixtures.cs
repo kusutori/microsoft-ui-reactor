@@ -205,6 +205,71 @@ internal static class ItemsHostEdgeCasesFixtures
     }
 
     private sealed record RawItem(int Id, string Label);
+
+    private sealed class ResourceRow : Component<string>
+    {
+        public override Element Render() => TextBlock("items-resource-row").Foreground(Theme.Ref(Props));
+    }
+
+    internal sealed class ResourceRefresh(Harness h, bool handCoded) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            string key = "ItemsHostResourceRefresh" + handCoded;
+            var red = global::Windows.UI.Color.FromArgb(255, 220, 0, 0);
+            var blue = global::Windows.UI.Color.FromArgb(255, 0, 0, 220);
+            var resources = new ResourceDictionary { [key] = new SolidColorBrush(red) };
+            Application.Current.Resources.MergedDictionaries.Add(resources);
+            ThemeRef.InvalidateResolutionCache();
+            using var host = H.CreateHost();
+            if (handCoded)
+                host.Reconciler.RegisterHandler<HandItemsElement, ListBox>(new HandItemsHandler());
+
+            // Empty logical slots precede the live row. The same list and component
+            // element are retained, and only the component body contains Theme.Ref.
+            object[] items = [null!, Empty(), "raw prefix", Component<ResourceRow, string>(key), TextBlock("literal")];
+            Action<int>? setTick = null;
+            host.Mount(ctx =>
+            {
+                var (tick, set) = ctx.UseState(0);
+                setTick = set;
+                Element list = handCoded ? new HandItemsElement(items) : ListBoxWrapperElement.ListBox(items: items);
+                return list.Margin(tick);
+            });
+            try
+            {
+                await Harness.WaitFor(() => H.FindText("items-resource-row") is not null);
+                var original = H.FindText("items-resource-row");
+                var control = H.FindControl<ListBox>(static _ => true)
+                    ?? throw new InvalidOperationException("ItemsHost resource fixture did not mount.");
+                H.Check("ItemsHost_Resource_InitialRed", original?.Foreground is SolidColorBrush brush && brush.Color == red);
+                H.Check("ItemsHost_Resource_LogicalGapsMapped", control.Items.Count == 3);
+                control.SelectedIndex = 1;
+                var originalItem = control.Items[1];
+
+                resources[key] = new SolidColorBrush(blue);
+                setTick!(1);
+                await Harness.Render();
+                H.Check("ItemsHost_Resource_OrdinaryRenderStaysCached",
+                    ReferenceEquals(original, H.FindText("items-resource-row")) &&
+                    original?.Foreground is SolidColorBrush cached && cached.Color == red);
+
+                Theme.NotifyResourcesChanged();
+                await Harness.WaitFor(() => original?.Foreground is SolidColorBrush current && current.Color == blue);
+                H.Check("ItemsHost_Resource_NotifiedRetainedComponentRefreshes",
+                    ReferenceEquals(original, H.FindText("items-resource-row")) &&
+                    original?.Foreground is SolidColorBrush refreshed && refreshed.Color == blue);
+                H.Check("ItemsHost_Resource_CollectionAndSelectionPreserved",
+                    control.Items.Count == 3 && control.SelectedIndex == 1 && ReferenceEquals(originalItem, control.Items[1]));
+            }
+            finally
+            {
+                Application.Current.Resources.MergedDictionaries.Remove(resources);
+                ThemeRef.InvalidateResolutionCache();
+            }
+        }
+    }
+
     private sealed record HandItemsElement(IReadOnlyList<object> Items) : Element;
     private sealed class HandItemsHandler : IElementHandler<HandItemsElement, ListBox>
     {

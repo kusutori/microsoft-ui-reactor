@@ -41,7 +41,7 @@ namespace Microsoft.UI.Reactor.Core.V1Protocol.Descriptor;
 /// overrides; unsealing carries no dispatch cost (calls already route through the
 /// <see cref="IElementHandler{TElement,TControl}"/> interface via the adapter).
 /// </remarks>
-public class DescriptorHandler<TElement, TControl> : IElementHandler<TElement, TControl>
+public class DescriptorHandler<TElement, TControl> : IElementHandler<TElement, TControl>, IDescriptorBackedHandler
     where TElement : Element
     where TControl : FrameworkElement, new()
 {
@@ -202,4 +202,12 @@ public class DescriptorHandler<TElement, TControl> : IElementHandler<TElement, T
         in UpdateContext ctx, TElement oldEl, TElement newEl, TControl ctrl,
         ItemsHost<TElement, TControl> ih)
         => ItemsHostReconciliation.Bind(ih, newEl, ctrl, ctx.Reconciler, ctx.RequestRerender, isMount: false);
+}
+
+/// <summary>
+/// Marks a handler whose unmount behaviour is the descriptor's: no hand-written teardown,
+/// only the declared <c>OnUnmount</c> (which forces its own tag) and the children strategy.
+/// </summary>
+internal interface IDescriptorBackedHandler
+{
 }

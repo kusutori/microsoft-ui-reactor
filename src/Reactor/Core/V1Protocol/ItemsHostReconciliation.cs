@@ -59,6 +59,7 @@ internal static class ItemsHostReconciliation
         // Still visit it for descendant state, context, theme or a forced render.
         if (!isMount && ReferenceEquals(itemsState.Source, source)
             && !itemsState.AnyThemeSensitive
+            && !reconciler.ResourceRefreshActive
             && !reconciler.ForceFullRenderActive
             && !reconciler.IsOnDirtyAncestorPath(control)
             && !HasChangedItemContext(itemsState, reconciler))
@@ -96,6 +97,7 @@ internal static class ItemsHostReconciliation
                     // Share the ordinary child-diff skip contract, not a blanket
                     // same-array skip: dirty/context-consuming components must still descend.
                     if (old.Source is Element oldChild && old.Value is UIElement existing
+                        && !reconciler.ResourceRefreshActive
                         && Element.CanSkipUpdate(oldChild, child)
                         && !reconciler.ForceRenderThroughWrapper(child)
                         && !reconciler.IsOnDirtyAncestorPath(existing)
@@ -108,7 +110,7 @@ internal static class ItemsHostReconciliation
                                 || Reconciler.CallSiteChangedOnSkip(oldChild, child))
                             && existing is FrameworkElement fe)
                         {
-                            Reconciler.RefreshSkippedChildState(fe, oldChild, child);
+                            reconciler.RefreshSkippedChildState(fe, oldChild, child);
                         }
                     }
                     else
