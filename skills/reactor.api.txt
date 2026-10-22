@@ -3276,6 +3276,7 @@ bool ShowFrequent { get; set; }
 bool ShowRecent { get; set; }
 string AppUserModelId { get; set; }
 ClearAsync() → Task
+GetRemovedArgumentsAsync() → Task<IReadOnlyList<string>>
 UpdateAsync(IEnumerable<JumpListItem> items) → Task
 
 ### record JumpListItem

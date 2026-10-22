@@ -42,10 +42,12 @@ internal static class JumpListComInterop
 
         ICustomDestinationList? cdl = null;
         IObjectArray? removed = null;
+        bool begun = false;
+        bool committed = false;
         try
         {
             cdl = (ICustomDestinationList)new DestinationList();
-            cdl.SetAppID(appUserModelId);
+            Marshal.ThrowExceptionForHR(cdl.SetAppID(appUserModelId));
 
             uint slotCount;
             var iidObjArray = typeof(IObjectArray).GUID;
@@ -55,6 +57,11 @@ internal static class JumpListComInterop
                 DiagnosticLog.HResultFailed(LogCategory.Shell, "JumpList.BeginList", hr);
                 return;
             }
+            begun = true;
+
+            items = JumpList.ExcludeRemovedItems(items,
+                ReadRemovedArguments(removed, Environment.ProcessPath ?? string.Empty),
+                customCategoriesOnly: true);
 
             // Group by category. Separators stay in the Tasks group with
             // their kind preserved on the IShellLink via PKEY_AppUserModel_IsDestListSeparator.
@@ -113,16 +120,66 @@ internal static class JumpListComInterop
             }
 
             int commitHr = cdl.CommitList();
+            committed = commitHr >= 0;
             if (commitHr < 0)
                 DiagnosticLog.HResultFailed(LogCategory.Shell, "JumpList.CommitList", commitHr);
         }
         finally
         {
+            if (begun && !committed && cdl is not null)
+            {
+                int abortHr = cdl.AbortList();
+                if (abortHr < 0) DiagnosticLog.HResultFailed(LogCategory.Shell, "JumpList.AbortList", abortHr);
+            }
             if (removed is not null)
                 Marshal.ReleaseComObject(removed);
             if (cdl is not null)
                 Marshal.ReleaseComObject(cdl);
         }
+    }
+
+    /// <summary>Read removals without beginning or committing a list update.</summary>
+    internal static IReadOnlyList<string> GetRemovedArguments(string appUserModelId)
+    {
+        var cdl = (ICustomDestinationList)new DestinationList();
+        object? removed = null;
+        try
+        {
+            Marshal.ThrowExceptionForHR(cdl.SetAppID(appUserModelId));
+            var iid = typeof(IObjectArray).GUID;
+            Marshal.ThrowExceptionForHR(cdl.GetRemovedDestinations(ref iid, out removed));
+            return ReadRemovedArguments((IObjectArray)removed, Environment.ProcessPath ?? string.Empty);
+        }
+        finally
+        {
+            if (removed is not null) Marshal.ReleaseComObject(removed);
+            Marshal.ReleaseComObject(cdl);
+        }
+    }
+
+    internal static IReadOnlyList<string> ReadRemovedArguments(IObjectArray removed, string executablePath)
+    {
+        Marshal.ThrowExceptionForHR(removed.GetCount(out var count));
+        var arguments = new HashSet<string>(StringComparer.Ordinal);
+        var iid = new Guid("00000000-0000-0000-C000-000000000046"); // IUnknown: entries can also be IShellItem.
+        for (uint i = 0; i < count; i++)
+        {
+            Marshal.ThrowExceptionForHR(removed.GetAt(i, ref iid, out var entry));
+            try
+            {
+                if (entry is not IShellLinkW link) continue;
+                var path = new global::System.Text.StringBuilder(32768);
+                Marshal.ThrowExceptionForHR(link.GetPath(path, path.Capacity, IntPtr.Zero, 0));
+                if (string.IsNullOrEmpty(executablePath) ||
+                    !string.Equals(path.ToString(), executablePath, StringComparison.OrdinalIgnoreCase)) continue;
+
+                var args = new global::System.Text.StringBuilder(32768);
+                Marshal.ThrowExceptionForHR(link.GetArguments(args, args.Capacity));
+                arguments.Add(args.ToString());
+            }
+            finally { Marshal.ReleaseComObject(entry); }
+        }
+        return arguments.ToArray();
     }
 
     /// <summary>
@@ -147,7 +204,7 @@ internal static class JumpListComInterop
         }
     }
 
-    private static IObjectCollection BuildShellLinkArray(IReadOnlyList<JumpListItem> items)
+    internal static IObjectCollection BuildShellLinkArray(IReadOnlyList<JumpListItem> items)
     {
         var coll = (IObjectCollection)new EnumerableObjectCollection();
 
@@ -238,15 +295,18 @@ internal static class JumpListComInterop
      InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
     private interface ICustomDestinationList
     {
-        [PreserveSig] void SetAppID([MarshalAs(UnmanagedType.LPWStr)] string pszAppID);
-        [PreserveSig] int BeginList(out uint pcMaxSlots, ref Guid riid,
+        [PreserveSig] int SetAppID([MarshalAs(UnmanagedType.LPWStr)] string pszAppID);
+        [PreserveSig]
+        int BeginList(out uint pcMaxSlots, ref Guid riid,
             [MarshalAs(UnmanagedType.Interface)] out IObjectArray ppv);
-        [PreserveSig] int AppendCategory([MarshalAs(UnmanagedType.LPWStr)] string pszCategory,
+        [PreserveSig]
+        int AppendCategory([MarshalAs(UnmanagedType.LPWStr)] string pszCategory,
             [MarshalAs(UnmanagedType.Interface)] IObjectArray poa);
         [PreserveSig] int AppendKnownCategory(KnownDestCategory category);
         [PreserveSig] int AddUserTasks([MarshalAs(UnmanagedType.Interface)] IObjectArray poa);
         [PreserveSig] int CommitList();
-        [PreserveSig] int GetRemovedDestinations(ref Guid riid,
+        [PreserveSig]
+        int GetRemovedDestinations(ref Guid riid,
             [MarshalAs(UnmanagedType.Interface)] out object ppv);
         [PreserveSig] int DeleteList([MarshalAs(UnmanagedType.LPWStr)] string pszAppID);
         [PreserveSig] int AbortList();
@@ -256,20 +316,22 @@ internal static class JumpListComInterop
 
     [ComImport, Guid("92ca9dcd-5622-4bba-a805-5e9f541bd8c9"),
      InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-    private interface IObjectArray
+    internal interface IObjectArray
     {
         [PreserveSig] int GetCount(out uint pcObjects);
-        [PreserveSig] int GetAt(uint uiIndex, ref Guid riid,
+        [PreserveSig]
+        int GetAt(uint uiIndex, ref Guid riid,
             [MarshalAs(UnmanagedType.Interface)] out object ppv);
     }
 
     [ComImport, Guid("5632b1a4-e38a-400a-928a-d4cd63230295"),
      InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-    private interface IObjectCollection
+    internal interface IObjectCollection
     {
         // IObjectArray
         [PreserveSig] int GetCount(out uint pcObjects);
-        [PreserveSig] int GetAt(uint uiIndex, ref Guid riid,
+        [PreserveSig]
+        int GetAt(uint uiIndex, ref Guid riid,
             [MarshalAs(UnmanagedType.Interface)] out object ppv);
         // IObjectCollection
         [PreserveSig] int AddObject([MarshalAs(UnmanagedType.IUnknown)] object punk);
@@ -282,7 +344,8 @@ internal static class JumpListComInterop
      InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
     private interface IShellLinkW
     {
-        [PreserveSig] int GetPath([Out, MarshalAs(UnmanagedType.LPWStr)] global::System.Text.StringBuilder pszFile,
+        [PreserveSig]
+        int GetPath([Out, MarshalAs(UnmanagedType.LPWStr)] global::System.Text.StringBuilder pszFile,
             int cch, IntPtr pfd, uint fFlags);
         [PreserveSig] int GetIDList(out IntPtr ppidl);
         [PreserveSig] int SetIDList(IntPtr pidl);
@@ -337,13 +400,14 @@ internal static class JumpListComInterop
     private static readonly Guid FmtIdSummaryInfo = new Guid("F29F85E0-4FF9-1068-AB91-08002B27B3D9");
     private static readonly Guid FmtIdAppUserModel = new Guid("9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3");
 
-    [DllImport("propsys.dll", PreserveSig = false)]
-    private static extern void InitPropVariantFromString(
-        [MarshalAs(UnmanagedType.LPWStr)] string psz, out PropVariant ppropvar);
+    // These are inline helpers in propvarutil.h, not propsys.dll exports.
+    // Use the same VT_LPWSTR / VT_BOOL representation; PropVariantClear owns
+    // the CoTaskMem string, and VARIANT_TRUE is -1 rather than Win32 TRUE (1).
+    private static void InitPropVariantFromString(string psz, out PropVariant ppropvar)
+        => ppropvar = new PropVariant { vt = 31, p1 = Marshal.StringToCoTaskMemUni(psz) };
 
-    [DllImport("propsys.dll", PreserveSig = false)]
-    private static extern void InitPropVariantFromBoolean(
-        [MarshalAs(UnmanagedType.Bool)] bool fVal, out PropVariant ppropvar);
+    private static void InitPropVariantFromBoolean(bool fVal, out PropVariant ppropvar)
+        => ppropvar = new PropVariant { vt = 11, p1 = fVal ? new IntPtr(-1) : IntPtr.Zero };
 
     [DllImport("ole32.dll")]
     private static extern int PropVariantClear(ref PropVariant pvar);

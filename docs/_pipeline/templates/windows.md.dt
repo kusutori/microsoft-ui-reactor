@@ -506,6 +506,7 @@ a [`DeepLinkMap<TRoute>`](navigation.md):
 | `JumpList.ShowRecent` / `ShowFrequent` | Toggle the OS-managed categories. Contents are shell-owned. |
 | `JumpList.UpdateAsync(items)` | Replace the whole list. UI thread only. |
 | `JumpList.ClearAsync()` | Remove the app's entries. |
+| `JumpList.GetRemovedArgumentsAsync()` | Read user-removed entries' argument strings without updating the list. UI thread only. |
 | `JumpListItem.ForUri(...)` | Deep-link entry — `Arguments` is the URI. |
 | `JumpListItem.ForCommandLine(...)` | argv-style entry; escapes each value for `CommandLineToArgvW`. |
 | `JumpListItemKind` | `Task`, `Custom` (needs `GroupCategory`), `Separator` |
@@ -525,6 +526,19 @@ Caveats:
 - `UpdateAsync` validates the whole batch before touching the shell, so one
   bad entry never leaves a half-populated list behind. Non-separator entries
   must have a non-empty `Title`.
+- **Respect user removals.** Before updating, call
+  `GetRemovedArgumentsAsync()` and remove matching arguments from your app's
+  destination tracking data (not the underlying files). The query does not
+  acknowledge removals. `UpdateAsync` also skips destinations currently marked
+  as removed by Windows, preventing an unpackaged custom category from being
+  rejected as a whole. Windows can clear its removal records after an update;
+  this is not a permanent blacklist. Only offer a destination again after new
+  user activity. Match arguments with `StringComparer.Ordinal`.
+- On unpackaged apps, removal queries cover shell links targeting the current
+  executable, which is the shape this wrapper creates, not `IShellItem` file
+  destinations or links to other executables. Removal filtering applies to
+  custom categories, not the non-removable User Tasks group. The packaged path
+  uses each loaded item's `RemovedByUser` flag, including ungrouped entries.
 
 ## Displays
 
