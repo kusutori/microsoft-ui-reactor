@@ -25,14 +25,31 @@ internal sealed class ContentDialogThemeBinding : IDisposable
 
     internal void Apply(ContentDialogElement element)
     {
-        _requestedTheme = element.Modifiers?.RequestedTheme;
+        var requested = element.Modifiers?.RequestedTheme;
+        _requestedTheme = requested is ElementTheme.Default ? null : requested;
         _setterOverride = false;
         ApplyTheme(_requestedTheme ?? _anchor.ActualTheme);
     }
 
     // .Set is the escape hatch and runs last. Do not overwrite a theme it chose
     // when an ancestor later changes; nor re-run arbitrary setters from an event.
-    internal void ObserveSetters() => _setterOverride = _dialog.RequestedTheme != _appliedTheme;
+    internal void ApplySetters(ContentDialogElement element)
+    {
+        // A write of the same value is still an explicit override. Value-change
+        // notifications cannot distinguish that from a setter that never wrote.
+        _dialog.ClearValue(FrameworkElement.RequestedThemeProperty);
+        try
+        {
+            Reconciler.ApplySetters(element.Setters, _dialog);
+        }
+        finally
+        {
+            _setterOverride = _dialog.ReadLocalValue(FrameworkElement.RequestedThemeProperty)
+                != DependencyProperty.UnsetValue;
+            if (!_setterOverride)
+                ApplyTheme(_requestedTheme ?? _anchor.ActualTheme);
+        }
+    }
 
     private void OnAnchorThemeChanged(FrameworkElement sender, object args)
     {

@@ -114,8 +114,7 @@ internal static class OverlayLifecycle
             dialog.Content = reconciler.Mount(n.Content, requestRerender) as UIElement;
         }
 
-        Reconciler.ApplySetters(n.Setters, dialog);
-        live.Theme.ObserveSetters();
+        live.Theme.ApplySetters(n);
         return null;
     }
 
@@ -265,7 +264,6 @@ internal static class OverlayLifecycle
         };
         if (cdEl.SecondaryButtonText is not null) dialog.SecondaryButtonText = cdEl.SecondaryButtonText;
         if (cdEl.CloseButtonText is not null) dialog.CloseButtonText = cdEl.CloseButtonText;
-        dialog.Content = reconciler.MountDialogContent(anchor, cdEl.Content, requestRerender);
         if (xamlRoot is not null) dialog.XamlRoot = xamlRoot;
         TagDialogForDiagnostics(dialog, cdEl);
         // Resolve callbacks through the anchor's live Tag the way Flyout/Popup do,
@@ -293,9 +291,9 @@ internal static class OverlayLifecycle
         try
         {
             theme.Apply(cdEl);
+            dialog.Content = reconciler.MountDialogContent(anchor, cdEl.Content, requestRerender, dialog.RequestedTheme);
             // ApplySetters last so caller .Set(...) wins (including theme/XamlRoot).
-            Reconciler.ApplySetters(cdEl.Setters, dialog);
-            theme.ObserveSetters();
+            theme.ApplySetters(cdEl);
             winUiResult = await dialog.ShowAsync();
         }
         finally

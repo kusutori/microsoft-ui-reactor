@@ -26,7 +26,10 @@ internal sealed class ContentDialogThemeOpenMatrixFixture(Harness h, bool explic
             // Default on an inherited owner just repeats the application fallback;
             // test Default as an explicit request against an opposite local owner.
             if (!explicitTheme && requested == ElementTheme.Default) continue;
-            var reference = await ReadNativeReference(requested);
+            var referenceTheme = requested == ElementTheme.Default
+                ? Application.Current.RequestedTheme == ApplicationTheme.Dark ? ElementTheme.Light : ElementTheme.Dark
+                : requested;
+            var reference = await ReadNativeReference(referenceTheme);
             var opposite = reference.ActualTheme == ElementTheme.Dark ? ElementTheme.Light : ElementTheme.Dark;
             foreach (var openAtMount in new[] { true, false })
             {
@@ -38,8 +41,8 @@ internal sealed class ContentDialogThemeOpenMatrixFixture(Harness h, bool explic
                     state,
                     // The nearest owner disagrees with the outer root, so using
                     // the window root instead of the declaration site is wrong.
-                    explicitTheme ? reference.ActualTheme : opposite,
-                    explicitTheme ? opposite : reference.ActualTheme,
+                    explicitTheme && requested != ElementTheme.Default ? reference.ActualTheme : opposite,
+                    explicitTheme && requested != ElementTheme.Default ? opposite : reference.ActualTheme,
                     explicitTheme ? requested : null,
                     setter => setState = setter)));
                 if (!openAtMount)
@@ -60,7 +63,7 @@ internal sealed class ContentDialogThemeOpenMatrixFixture(Harness h, bool explic
                     // prove the real, visible dialog received the theme.
                     var current = ContentDialogProbe.FindOpen(H, Title)!;
                     var text = ContentDialogProbe.FindText(current, ContentText);
-                    var expectedRequest = explicitTheme ? requested : reference.ActualTheme;
+                    var expectedRequest = explicitTheme && requested != ElementTheme.Default ? requested : reference.ActualTheme;
                     H.Check("DialogThemeMatrix_" + caseName + "_RequestedTheme",
                         current.RequestedTheme == expectedRequest,
                         $"App={Application.Current.RequestedTheme}; expected={expectedRequest}; actual={current.RequestedTheme}");
@@ -71,6 +74,10 @@ internal sealed class ContentDialogThemeOpenMatrixFixture(Harness h, bool explic
                     H.Check("DialogThemeMatrix_" + caseName + "_NativeForeground",
                         foreground == reference.Foreground,
                         $"Native={reference.Foreground}; Reactor={foreground}");
+                    H.Check("DialogThemeMatrix_" + caseName + "_ContentThemeResource",
+                        text?.Resources["DialogThemeProbeBrush"] is SolidColorBrush resourceBrush
+                        && resourceBrush.Color == reference.Foreground,
+                        $"ThemeRef must resolve against native reference theme {reference.ActualTheme} on first open.");
                 }
                 finally
                 {
@@ -132,7 +139,9 @@ internal sealed class ContentDialogThemeOpenMatrixFixture(Harness h, bool explic
         {
             var (state, setState) = UseState(Props.Initial);
             Props.CaptureSetter(setState);
-            var dialog = ContentDialog(Title, TextBlock(ContentText), "OK") with { IsOpen = state.IsOpen };
+            var dialog = ContentDialog(Title, TextBlock(ContentText)
+                .Resources(resources => resources.Set("DialogThemeProbeBrush", Theme.PrimaryText)), "OK")
+                with { IsOpen = state.IsOpen };
             if (Props.DialogTheme is { } theme) dialog = dialog.RequestedTheme(theme);
             return VStack(VStack(dialog).RequestedTheme(Props.OwnerTheme)).RequestedTheme(Props.RootTheme);
         }

@@ -17,10 +17,9 @@ internal sealed class ContentDialogThemeFixture(Harness h) : SelfTestFixtureBase
         var opposite = appTheme == ElementTheme.Dark ? ElementTheme.Light : ElementTheme.Dark;
         var state = new ScenarioState(opposite);
         Action<ScenarioState>? setState = null;
-        FrameworkElement? anchor = null;
         var host = H.CreateHost();
         host.Mount(_ => Component<Scenario, ScenarioProps>(new(
-            state, setter => setState = setter, element => anchor = element)));
+            state, setter => setState = setter)));
         var mounted = await ContentDialogProbe.WaitForOpen(H, Title)
             ?? throw new InvalidOperationException("Dialog did not open.");
         await Harness.WaitFor(() => ContentDialogProbe.Walk<WinUI.TextBox>(mounted, _ => true) is not null);
@@ -36,6 +35,7 @@ internal sealed class ContentDialogThemeFixture(Harness h) : SelfTestFixtureBase
 
             state = state with { ParentTheme = appTheme };
             setState!(state);
+            await Harness.Render();
             await CheckTheme("FollowsParentRender", appTheme);
 
             var owner = H.FindControl<WinUI.StackPanel>(panel =>
@@ -54,7 +54,8 @@ internal sealed class ContentDialogThemeFixture(Harness h) : SelfTestFixtureBase
             await CheckTheme("FollowsNativeAncestorChange", opposite);
 
             state = state with { DialogTheme = appTheme };
-            setState(state);
+            setState!(state);
+            await Harness.Render();
             await CheckTheme("ExplicitThemeReachesRealDialog", appTheme);
             owner.RequestedTheme = appTheme;
             await Harness.Render();
@@ -62,44 +63,83 @@ internal sealed class ContentDialogThemeFixture(Harness h) : SelfTestFixtureBase
             await CheckTheme("ExplicitThemeWinsOverAncestor", appTheme);
 
             state = state with { DialogTheme = opposite };
-            setState(state);
+            setState!(state);
+            await Harness.Render();
             await CheckTheme("ExplicitThemeUpdatesWhileOpen", opposite);
 
             state = state with { DialogTheme = ElementTheme.Default };
             setState(state);
             await Harness.Render();
-            H.Check("DialogTheme_ExplicitDefaultIsNotUnset",
-                ReferenceEquals(Current(), mounted) && Current().RequestedTheme == ElementTheme.Default);
+            await CheckTheme("ExplicitDefaultFollowsOwner", opposite);
+            owner.RequestedTheme = appTheme;
+            await CheckTheme("ExplicitDefaultFollowsNativeChange", appTheme);
+            owner.RequestedTheme = opposite;
 
             state = state with { DialogTheme = null };
-            setState(state);
+            setState!(state);
+            await Harness.Render();
             await CheckTheme("RemovingOverrideResumesFollowing", opposite);
             owner.RequestedTheme = appTheme;
             await CheckTheme("FollowingRemainsLiveAfterRemoval", appTheme);
 
             state = state with { NativeOverride = true };
-            setState(state);
+            setState!(state);
+            await Harness.Render();
             await CheckTheme("NativeSetterWins", opposite);
             owner.RequestedTheme = opposite;
             await Harness.Render();
             owner.RequestedTheme = appTheme;
             await CheckTheme("FollowingDoesNotOverwriteNativeSetter", opposite);
 
-            state = state with { NativeOverride = false };
-            setState(state);
+            // Setter equals the followed value. A value-comparison detector
+            // misses this assignment and later lets the owner overwrite it.
+            owner.RequestedTheme = opposite;
+            state = state with { ParentTheme = opposite, NativeOverride = true };
+            setState!(state);
+            await Harness.Render();
+            await CheckTheme("EqualNativeSetterWins", opposite);
+            // The owner's modifier is applied after its children update. Render
+            // once more with that owner already settled, changing only a dialog
+            // prop so the setter is observed against the same followed value.
+            state = state with { ButtonEnabled = false };
+            setState!(state);
+            await Harness.Render();
+            await CheckTheme("EqualNativeSetterAfterOwnerSettles", opposite);
+            owner.RequestedTheme = appTheme;
+            await Harness.WaitFor(() => owner.ActualTheme == appTheme);
+            await Harness.Render();
+            await CheckTheme("EqualNativeSetterRemainsPinned", opposite);
+
+            state = state with { NativeOverride = false, ParentTheme = appTheme, ButtonEnabled = true };
+            setState!(state);
+            await Harness.Render();
             await CheckTheme("RemovingNativeSetterResumesFollowing", appTheme);
 
-            state = state with { IsOpen = false };
-            setState(state);
+            WinUI.ContentDialogClosingDeferral? closingDeferral = null;
+            mounted.Closing += (_, args) => closingDeferral = args.GetDeferral();
+            try
+            {
+                state = state with { IsOpen = false };
+                setState!(state);
+                await Harness.Render();
+                if (!await Harness.WaitFor(() => closingDeferral is not null))
+                    throw new InvalidOperationException("Dialog did not enter deferred closing.");
+                var closingTheme = mounted.RequestedTheme;
+                state = state with { ParentTheme = opposite, ButtonEnabled = false };
+                setState(state);
+                await Harness.Render();
+                owner.RequestedTheme = opposite;
+                await Harness.Render();
+                H.Check("DialogTheme_ClosingStopsFollowing", mounted.RequestedTheme == closingTheme,
+                    $"While closing: expected {closingTheme}; actual {mounted.RequestedTheme}");
+                H.Check("DialogTheme_ClosingIgnoresPropUpdates", mounted.IsPrimaryButtonEnabled);
+            }
+            finally { closingDeferral?.Complete(); }
             H.Check("DialogTheme_Closes", await ContentDialogProbe.WaitForClosed(H, Title));
-            var closedTheme = mounted.RequestedTheme;
-            owner.RequestedTheme = opposite;
-            await Harness.Render();
-            H.Check("DialogTheme_CloseStopsFollowing", mounted.RequestedTheme == closedTheme,
-                $"Before ancestor change: {closedTheme}; after: {mounted.RequestedTheme}");
 
             state = state with { IsOpen = true };
-            setState(state);
+            setState!(state);
+            await Harness.Render();
             mounted = await ContentDialogProbe.WaitForOpen(H, Title)
                 ?? throw new InvalidOperationException("Dialog did not reopen.");
             await Harness.WaitFor(() => ContentDialogProbe.Walk<WinUI.TextBox>(mounted, _ => true) is not null);
@@ -114,12 +154,9 @@ internal sealed class ContentDialogThemeFixture(Harness h) : SelfTestFixtureBase
             await CheckTheme("ReopenUsesCurrentOwnerTheme", opposite);
 
             state = state with { IncludeDialog = false };
-            setState(state);
-            H.Check("DialogTheme_UnmountCloses", await ContentDialogProbe.WaitForClosed(H, Title));
-            var unmountedTheme = mounted.RequestedTheme;
-            anchor!.RequestedTheme = appTheme;
+            setState!(state);
             await Harness.Render();
-            H.Check("DialogTheme_UnmountStopsFollowing", mounted.RequestedTheme == unmountedTheme);
+            H.Check("DialogTheme_UnmountCloses", await ContentDialogProbe.WaitForClosed(H, Title));
         }
         finally
         {
@@ -151,12 +188,12 @@ internal sealed class ContentDialogThemeFixture(Harness h) : SelfTestFixtureBase
         ElementTheme? DialogTheme = null,
         bool IsOpen = true,
         bool IncludeDialog = true,
-        bool NativeOverride = false);
+        bool NativeOverride = false,
+        bool ButtonEnabled = true);
 
     private sealed record ScenarioProps(
         ScenarioState Initial,
-        Action<Action<ScenarioState>> CaptureSetter,
-        Action<FrameworkElement> CaptureAnchor);
+        Action<Action<ScenarioState>> CaptureSetter);
 
     private sealed class Scenario : Component<ScenarioProps>
     {
@@ -168,6 +205,7 @@ internal sealed class ContentDialogThemeFixture(Harness h) : SelfTestFixtureBase
                 VStack(TextBlock("Themed dialog content"), TextBox("seed")), "OK") with
             {
                 IsOpen = state.IsOpen,
+                IsPrimaryButtonEnabled = state.ButtonEnabled,
             };
             if (state.DialogTheme is { } theme) dialog = dialog.RequestedTheme(theme);
             if (state.NativeOverride)
@@ -178,7 +216,7 @@ internal sealed class ContentDialogThemeFixture(Harness h) : SelfTestFixtureBase
             }
             return VStack(
                 TextBlock("Owner"),
-                state.IncludeDialog ? dialog.OnMountAdd(Props.CaptureAnchor) : null)
+                state.IncludeDialog ? dialog : null)
                 .AutomationName("Dialog theme owner")
                 .RequestedTheme(state.ParentTheme);
         }

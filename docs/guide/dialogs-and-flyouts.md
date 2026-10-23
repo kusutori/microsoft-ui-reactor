@@ -116,8 +116,8 @@ an already-open dialog; closing or unmounting detaches the listener.
 
 Use the existing `.RequestedTheme(ElementTheme.Dark)` modifier to override the
 real dialog's theme explicitly. Changing that declaration updates the open dialog
-in place; removing it resumes following the owner. An explicit
-`ElementTheme.Default` is still a native theme request, not an absent override.
+in place; removing it or explicitly requesting `ElementTheme.Default` resumes
+following the owner, consistent with theme inheritance elsewhere in Reactor.
 Native `.Set(dialog => ...)` callbacks run last and can override the theme.
 
 ### Three-button dialogs
