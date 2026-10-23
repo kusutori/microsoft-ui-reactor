@@ -58,6 +58,11 @@ Border(customControl).Drag(false); // opt out of background drag
 
 Placement values: `Default`, `CenterOnPrimary`, `CenterOnOwner`, `CenterOnCurrent`, `Manual`.
 
+Window hooks (`UseWindow`, `UseWindowPosition`, `UseWindowDragMove`, `UseDpi`, `UseWindowState`,
+`UseIsActive`, `UseClosingGuard`, `UseWindowAspectRatio`, …) bind the window whose host renders the component,
+including nested components and virtualized rows, never "the most recently active window". In tray flyouts and
+`ReactorHostControl` embeds they return `null` / their outside-a-window values.
+
 ## Persistence
 
 ```csharp
@@ -250,8 +255,8 @@ return VStack(
 Results are `PickFileResult` / `PickFolderResult` (`Microsoft.Windows.Storage.Pickers`) exposing `.Path`;
 cancellation returns `null` or an empty list. The dialog is owned by the window whose host renders the
 component, works in elevated apps, and throws `InvalidOperationException` once the component has unmounted
-or its window has closed. Inside `ReactorHostControl` there is no owning window, so the methods throw; build
-the native picker from the hosting window's `AppWindow.Id` there.
+or its window has closed. Inside `ReactorHostControl` the owner is the window the control is loaded in when
+the method is called; an unloaded control throws.
 `FileTypeChoices` is an ordered `IReadOnlyList<FileTypeChoice>`: order sets the default entry, labels must be
 unique. Options also take `Title`, `SuggestedFolder`, `SuggestedStartFolder`, `InitialFileTypeIndex`, and (save)
 `DefaultFileExtension` / `ShowOverwritePrompt`. Do not pass arbitrary HWNDs.

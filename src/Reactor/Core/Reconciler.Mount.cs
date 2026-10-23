@@ -186,7 +186,7 @@ public sealed partial class Reconciler
         if (control is WinUI.TitleBar tbCtl)
         {
             if (element is TitleBarElement tbEl)
-                TitleBarElement.SyncControlHeightAfterModifiers(tbCtl, tbEl);
+                TitleBarElement.SyncControlHeightAfterModifiers(tbCtl, tbEl, TitleBarElement.WindowFor(this, tbCtl));
 
             // Anything that changed since the pre-modifier observation came from a
             // modifier; whether it recurs depends on the phase.
@@ -897,7 +897,7 @@ public sealed partial class Reconciler
         bool inEffects = false;
         try
         {
-            component.Context.BeginRender(componentRerender, _contextScope, OwningWindow);
+            component.Context.BeginRender(componentRerender, _contextScope, Owner);
             using (ValidationRenderScope.Begin(ReadContext(ValidationContexts.Current)))
             {
                 childElement = ValidationRenderScope.ApplyProvide(component.Render());
@@ -982,7 +982,7 @@ public sealed partial class Reconciler
         bool inEffects = false;
         try
         {
-            ctx.BeginRender(componentRerender, _contextScope, OwningWindow);
+            ctx.BeginRender(componentRerender, _contextScope, Owner);
             using (ValidationRenderScope.Begin(ReadContext(ValidationContexts.Current)))
             {
                 childElement = ValidationRenderScope.ApplyProvide(funcElement.RenderFunc(ctx));
@@ -1066,7 +1066,7 @@ public sealed partial class Reconciler
         bool inEffects = false;
         try
         {
-            ctx.BeginRender(componentRerender, _contextScope, OwningWindow);
+            ctx.BeginRender(componentRerender, _contextScope, Owner);
             using (ValidationRenderScope.Begin(ReadContext(ValidationContexts.Current)))
             {
                 childElement = ValidationRenderScope.ApplyProvide(memoElement.RenderFunc(ctx));

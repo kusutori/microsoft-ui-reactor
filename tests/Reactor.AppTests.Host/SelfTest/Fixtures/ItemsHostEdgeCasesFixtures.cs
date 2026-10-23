@@ -222,6 +222,7 @@ internal static class ItemsHostEdgeCasesFixtures
             Application.Current.Resources.MergedDictionaries.Add(resources);
             ThemeRef.InvalidateResolutionCache();
             using var host = H.CreateHost();
+            using var isolation = ThemeResourceListeners.IsolateForTest(host);
             if (handCoded)
                 host.Reconciler.RegisterHandler<HandItemsElement, ListBox>(new HandItemsHandler());
 
