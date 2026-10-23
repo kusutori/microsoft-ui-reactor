@@ -22,8 +22,10 @@ public partial class JumpListRemovalTests
         // would erase the removal observations and resurrect the removed item.
         var removedArguments = nativeItems.Select(item => item.Arguments);
 
-        JumpList.ReplacePackagedItems(nativeItems,
+        var observed = JumpList.ReplacePackagedItems(nativeItems,
             new[] { JumpListItem.ForUri("Removed", old.Arguments), separator, keep }, removedArguments);
+
+        Assert.Equal(new[] { "app://removed" }, observed);
 
         Assert.Equal(2, nativeItems.Count);
         Assert.Equal(global::Windows.UI.StartScreen.JumpListItemKind.Separator, nativeItems[0].Kind);
@@ -112,6 +114,105 @@ public partial class JumpListRemovalTests
         var keep = removed with { Arguments = "open" };
         Assert.Equal(new[] { keep }, JumpList.ExcludeRemovedItems(
             new[] { removed, keep }, new[] { "" }, customCategoriesOnly));
+    }
+
+    [Fact]
+    public void Packaged_Replacement_Returns_Removals_Not_In_The_New_Batch()
+    {
+        var nativeItems = new List<global::Windows.UI.StartScreen.JumpListItem>
+        {
+            global::Windows.UI.StartScreen.JumpListItem.CreateWithArguments("app://absent", "Removed"),
+        };
+        var observed = JumpList.ReplacePackagedItems(nativeItems, Array.Empty<JumpListItem>(),
+            nativeItems.Select(item => item.Arguments));
+        Assert.Equal(new[] { "app://absent" }, observed);
+        Assert.Empty(nativeItems);
+    }
+
+    [Fact]
+    public void Native_Transaction_Reports_Consumed_Removals_And_Keeps_User_Tasks()
+    {
+        using var apartment = JumpListComInterop.InitializeApartment();
+        using var removed = JumpListComInterop.BuildShellLinkArray(new[]
+        {
+            JumpListItem.ForUri("Removed custom", "app://custom"),
+            JumpListItem.ForUri("Removed task argument", "app://task"),
+            JumpListItem.ForUri("Absent from batch", "app://absent"),
+        });
+        var shell = new RecordingDestinationList(removed.Pointer);
+        var result = JumpListComInterop.UpdateUnpackaged(shell, new[]
+        {
+            JumpListItem.ForUri("Drop", "app://custom", groupCategory: "Files"),
+            JumpListItem.ForUri("Keep", "app://keep", groupCategory: "Files"),
+            JumpListItem.ForUri("Task", "app://task"),
+        }, showRecent: true, showFrequent: true);
+        Assert.True(result.Succeeded);
+        Assert.Equal(new[] { "app://absent", "app://custom", "app://task" }, result.RemovedArguments.Order());
+        Assert.Equal(new[] { "app://keep" }, shell.CategoryArguments);
+        Assert.Equal(new[] { "app://task" }, shell.TaskArguments);
+        Assert.Equal(new[] { JumpListComInterop.KnownDestCategory.Recent,
+            JumpListComInterop.KnownDestCategory.Frequent }, shell.KnownCategories);
+        Assert.True(shell.Committed);
+        Assert.False(shell.Aborted);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(unchecked((int)0x80004005))]
+    public void Native_Clear_Returns_Observed_Removals_Even_When_Commit_Fails(int commitResult)
+    {
+        using var apartment = JumpListComInterop.InitializeApartment();
+        using var removed = JumpListComInterop.BuildShellLinkArray(new[]
+        {
+            JumpListItem.ForUri("Absent from empty batch", "app://absent"),
+        });
+        var shell = new RecordingDestinationList(removed.Pointer) { CommitResult = commitResult };
+
+        var result = JumpListComInterop.UpdateUnpackaged(shell, Array.Empty<JumpListItem>(),
+            showRecent: false, showFrequent: false);
+
+        Assert.Equal(commitResult >= 0, result.Succeeded);
+        Assert.Equal(new[] { "app://absent" }, result.RemovedArguments);
+        Assert.Empty(shell.CategoryArguments);
+        Assert.Empty(shell.TaskArguments);
+        Assert.True(shell.Committed);
+        Assert.Equal(commitResult < 0, shell.Aborted);
+    }
+
+    private sealed class RecordingDestinationList(nint removed) : JumpListComInterop.ICustomDestinationList
+    {
+        public IReadOnlyList<string> CategoryArguments = Array.Empty<string>();
+        public IReadOnlyList<string> TaskArguments = Array.Empty<string>();
+        public List<JumpListComInterop.KnownDestCategory> KnownCategories = new();
+        public bool Committed;
+        public bool Aborted;
+        public int CommitResult;
+        public int SetAppID(string appId) => 0;
+        public int BeginList(out uint maxSlots, in Guid iid, out nint value)
+        {
+            maxSlots = 10;
+            var interfaceId = iid;
+            return Marshal.QueryInterface(removed, in interfaceId, out value);
+        }
+        public int AppendCategory(string category, JumpListComInterop.IObjectArray array)
+        {
+            CategoryArguments = JumpListComInterop.ReadRemovedArguments(array, Environment.ProcessPath!);
+            return 0;
+        }
+        public int AddUserTasks(JumpListComInterop.IObjectArray array)
+        {
+            TaskArguments = JumpListComInterop.ReadRemovedArguments(array, Environment.ProcessPath!);
+            return 0;
+        }
+        public int AppendKnownCategory(JumpListComInterop.KnownDestCategory category)
+        {
+            KnownCategories.Add(category);
+            return 0;
+        }
+        public int CommitList() { Committed = true; return CommitResult; }
+        public int AbortList() { Aborted = true; return 0; }
+        public int GetRemovedDestinations(in Guid iid, out nint value) => BeginList(out _, in iid, out value);
+        public int DeleteList(string appId) => 0;
     }
 
     [Fact]

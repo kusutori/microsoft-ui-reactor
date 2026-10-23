@@ -16,15 +16,26 @@ public sealed class RenderContext
     private ContextScope? _contextScope;
     private int _uiThreadId;
 
-    // The window whose host renders this context, supplied by that host's reconciler.
-    // Picker calls run from event handlers, outside render, so they cannot read the
-    // process-wide ReactorApp.ActiveHostInternal: it names whichever host rendered or was
-    // constructed most recently (a window opened mid-render overwrites it), is not scoped
-    // for virtualized-row renders, and is null after any host is disposed.
-    private Microsoft.UI.Reactor.ReactorWindow? _owningWindow;
+    // The host that renders this context, supplied by that host's reconciler.
+    // Window hooks and picker calls read it instead of the process-wide
+    // ReactorApp.ActiveHostInternal: that names whichever host rendered or was constructed
+    // most recently (a window opened mid-render overwrites it), is not scoped for
+    // virtualized-row renders or ReactorHostControl, and is null after any host is disposed.
+    private IContentOwner? _owner;
     // True once an owner was released by unmount or root retirement, so a picker call from a
-    // retained delegate can say so instead of pointing at hosting without a window.
-    private bool _owningWindowReleased;
+    // retained delegate can say so instead of reporting a context that never rendered.
+    private bool _ownerReleased;
+
+    /// <summary>
+    /// The <see cref="Microsoft.UI.Reactor.ReactorWindow"/> whose host renders this context, as
+    /// recorded by that host's reconciler at the last <c>BeginRender</c>; <c>null</c> when the
+    /// content has no owning <c>ReactorWindow</c> (tray flyout, <c>ReactorHostControl</c>, a
+    /// <c>ReactorHost</c> constructed over a raw <c>Window</c>) or after unmount. Read by the window
+    /// hooks during render. Deliberately no fallback to <c>ReactorApp.ActiveHostInternal</c>, which
+    /// would name an unrelated host there. The pickers instead resolve a window id from the owner
+    /// itself, so they also work in content without a <c>ReactorWindow</c>.
+    /// </summary>
+    internal Microsoft.UI.Reactor.ReactorWindow? OwningReactorWindow => _owner?.ReactorWindow;
 
     /// <summary>
     /// Time source used by time-based hooks (currently <see cref="UseCommand(Command)"/>'s
@@ -34,28 +45,28 @@ public sealed class RenderContext
     internal global::System.TimeProvider TimeProvider { get; set; } = global::System.TimeProvider.System;
 
     internal void BeginRender(Action requestRerender)
-        => BeginRender(requestRerender, owningWindow: null);
+        => BeginRender(requestRerender, owner: null);
 
-    internal void BeginRender(Action requestRerender, Microsoft.UI.Reactor.ReactorWindow? owningWindow)
+    internal void BeginRender(Action requestRerender, IContentOwner? owner)
     {
         _hookIndex = 0;
         _requestRerender = requestRerender;
         _uiThreadId = Environment.CurrentManagedThreadId;
-        _owningWindow = owningWindow;
-        _owningWindowReleased = false;
+        _owner = owner;
+        _ownerReleased = false;
     }
 
     internal void BeginRender(Action requestRerender, ContextScope contextScope)
-        => BeginRender(requestRerender, contextScope, owningWindow: null);
+        => BeginRender(requestRerender, contextScope, owner: null);
 
-    internal void BeginRender(Action requestRerender, ContextScope contextScope, Microsoft.UI.Reactor.ReactorWindow? owningWindow)
+    internal void BeginRender(Action requestRerender, ContextScope contextScope, IContentOwner? owner)
     {
         _hookIndex = 0;
         _requestRerender = requestRerender;
         _contextScope = contextScope;
         _uiThreadId = Environment.CurrentManagedThreadId;
-        _owningWindow = owningWindow;
-        _owningWindowReleased = false;
+        _owner = owner;
+        _ownerReleased = false;
     }
 
     /// <summary>
@@ -855,11 +866,11 @@ public sealed class RenderContext
     /// process-wide state.
     /// </summary>
     /// <remarks>
-    /// <see cref="PersistedScope.Window"/> resolves to the active host's
-    /// <see cref="Microsoft.UI.Reactor.ReactorWindow.PersistedScope"/> when the
-    /// host has an owning window; otherwise it falls back to the process-wide
-    /// scope so unit-test contexts (which never construct a window) keep their
-    /// existing semantics. Two windows of the same component class therefore
+    /// <see cref="PersistedScope.Window"/> resolves to the
+    /// <see cref="Microsoft.UI.Reactor.ReactorWindow.PersistedScope"/> of the window whose host
+    /// renders this component; content without an owning window (tray flyouts,
+    /// <c>ReactorHostControl</c>, unit-test contexts) falls back to the process-wide
+    /// scope. Two windows of the same component class therefore
     /// hold independent state under <see cref="PersistedScope.Window"/>.
     /// (spec 036 §3.4 / §4.4 — closes spec 033 §7.5.)
     /// </remarks>
@@ -1923,14 +1934,15 @@ public sealed class RenderContext
     }
 
     /// <summary>
-    /// Parameterless overload — resolves the current host's window via the
-    /// active host's back-pointer and re-renders on resize. Returns
-    /// <c>(0, 0)</c> when called outside a window (e.g. tray-flyout content);
-    /// no implicit fallback to <c>PrimaryWindow</c>. (spec 036 §5.2 / §7.1)
+    /// Parameterless overload — resolves the window whose host renders this
+    /// component and re-renders on resize. Returns
+    /// <c>(0, 0)</c> when the component has no owning window (tray-flyout content,
+    /// <c>ReactorHostControl</c> embeds); no implicit fallback to <c>PrimaryWindow</c>
+    /// or to another open window. (spec 036 §5.2 / §7.1)
     /// </summary>
     public (double Width, double Height) UseWindowSize()
     {
-        var hostWindow = Microsoft.UI.Reactor.ReactorApp.ActiveHostInternal?.OwningWindow;
+        var hostWindow = OwningReactorWindow;
         if (hostWindow is null)
         {
             // Reserve the same hook slots as the live branch (UseState +
@@ -1945,12 +1957,14 @@ public sealed class RenderContext
     }
 
     /// <summary>
-    /// Resolves the current host's <see cref="Microsoft.UI.Reactor.ReactorWindow"/>
-    /// (or <c>null</c> when called outside a window — e.g. tray-flyout content).
-    /// O(1) field read; no subscription, no re-render trigger. (spec 036 §7 / §7.1)
+    /// Resolves the <see cref="Microsoft.UI.Reactor.ReactorWindow"/> whose host renders this
+    /// component — including nested components and virtualized rows realized outside the
+    /// host's render pass — or <c>null</c> when it has no owning window (tray-flyout content,
+    /// <c>ReactorHostControl</c> embeds). O(1) field read; no subscription, no re-render
+    /// trigger. (spec 036 §7 / §7.1)
     /// </summary>
     public Microsoft.UI.Reactor.ReactorWindow? UseWindow()
-        => Microsoft.UI.Reactor.ReactorApp.ActiveHostInternal?.OwningWindow;
+        => OwningReactorWindow;
 
     /// <summary>
     /// Subscribes to the host window's <c>PositionChanged</c> event and re-renders
@@ -1958,7 +1972,7 @@ public sealed class RenderContext
     /// </summary>
     public (double X, double Y) UseWindowPosition()
     {
-        var win = Microsoft.UI.Reactor.ReactorApp.ActiveHostInternal?.OwningWindow;
+        var win = OwningReactorWindow;
         if (win is null)
         {
             _ = UseState((0.0, 0.0));
@@ -1983,7 +1997,7 @@ public sealed class RenderContext
     /// </summary>
     public bool UseIsCovered()
     {
-        var win = Microsoft.UI.Reactor.ReactorApp.ActiveHostInternal?.OwningWindow;
+        var win = OwningReactorWindow;
         if (win is null)
         {
             _ = UseState(false);
@@ -2027,7 +2041,7 @@ public sealed class RenderContext
     /// </summary>
     public void UseWindowAspectRatio(double? widthOverHeight)
     {
-        var win = Microsoft.UI.Reactor.ReactorApp.ActiveHostInternal?.OwningWindow;
+        var win = OwningReactorWindow;
         UseEffect(() =>
         {
             if (win is null) return () => { };
@@ -2051,7 +2065,7 @@ public sealed class RenderContext
     /// </remarks>
     public Action UseWindowDragMove()
     {
-        var win = Microsoft.UI.Reactor.ReactorApp.ActiveHostInternal?.OwningWindow;
+        var win = OwningReactorWindow;
         return UseMemo<Action>(() => win is null ? static () => { } : win.BeginDragMove, win!);
     }
 
@@ -2060,7 +2074,7 @@ public sealed class RenderContext
     /// <summary>Opens a single-file picker owned by this component's window.</summary>
     /// <remarks>
     /// Not a hook: call from a UI-thread event handler, not during Render. The owner is the window
-    /// whose host renders this component; once the component unmounts, the call throws. Cancellation returns null.
+    /// whose host renders this component (for ReactorHostControl, the window it is loaded in). Throws <see cref="InvalidOperationException"/> once the component unmounts, its window closes or its host is disposed, or while its ReactorHostControl is not loaded. Cancellation returns null.
     /// </remarks>
     public Task<Microsoft.Windows.Storage.Pickers.PickFileResult?> PickFileAsync(FilePickerOptions options)
     {
@@ -2073,7 +2087,7 @@ public sealed class RenderContext
     /// <summary>Opens a multiple-file picker owned by this component's window.</summary>
     /// <remarks>
     /// Not a hook: call from a UI-thread event handler, not during Render. The owner is the window
-    /// whose host renders this component; once the component unmounts, the call throws. Cancellation returns an empty list.
+    /// whose host renders this component (for ReactorHostControl, the window it is loaded in). Throws <see cref="InvalidOperationException"/> once the component unmounts, its window closes or its host is disposed, or while its ReactorHostControl is not loaded. Cancellation returns an empty list.
     /// </remarks>
     public Task<IReadOnlyList<Microsoft.Windows.Storage.Pickers.PickFileResult>> PickMultipleFilesAsync(FilePickerOptions options)
     {
@@ -2086,7 +2100,7 @@ public sealed class RenderContext
     /// <summary>Opens a single-folder picker owned by this component's window.</summary>
     /// <remarks>
     /// Not a hook: call from a UI-thread event handler, not during Render. The owner is the window
-    /// whose host renders this component; once the component unmounts, the call throws. Cancellation returns null.
+    /// whose host renders this component (for ReactorHostControl, the window it is loaded in). Throws <see cref="InvalidOperationException"/> once the component unmounts, its window closes or its host is disposed, or while its ReactorHostControl is not loaded. Cancellation returns null.
     /// </remarks>
     public Task<Microsoft.Windows.Storage.Pickers.PickFolderResult?> PickFolderAsync(FolderPickerOptions options)
     {
@@ -2098,7 +2112,7 @@ public sealed class RenderContext
     /// <summary>Opens a multiple-folder picker owned by this component's window.</summary>
     /// <remarks>
     /// Not a hook: call from a UI-thread event handler, not during Render. The owner is the window
-    /// whose host renders this component; once the component unmounts, the call throws. Cancellation returns an empty list.
+    /// whose host renders this component (for ReactorHostControl, the window it is loaded in). Throws <see cref="InvalidOperationException"/> once the component unmounts, its window closes or its host is disposed, or while its ReactorHostControl is not loaded. Cancellation returns an empty list.
     /// </remarks>
     public Task<IReadOnlyList<Microsoft.Windows.Storage.Pickers.PickFolderResult>> PickMultipleFoldersAsync(FolderPickerOptions options)
     {
@@ -2110,7 +2124,7 @@ public sealed class RenderContext
     /// <summary>Opens a save-file picker owned by this component's window.</summary>
     /// <remarks>
     /// Not a hook: call from a UI-thread event handler, not during Render. The owner is the window
-    /// whose host renders this component; once the component unmounts, the call throws. Cancellation returns null. Selecting a target does not
+    /// whose host renders this component (for ReactorHostControl, the window it is loaded in). Throws <see cref="InvalidOperationException"/> once the component unmounts, its window closes or its host is disposed, or while its ReactorHostControl is not loaded. Cancellation returns null. Selecting a target does not
     /// create or write the file; that is the caller's responsibility.
     /// </remarks>
     public Task<Microsoft.Windows.Storage.Pickers.PickFileResult?> PickSaveFileAsync(SaveFilePickerOptions options)
@@ -2123,17 +2137,18 @@ public sealed class RenderContext
 
     private Microsoft.UI.WindowId GetPickerOwner(string operation)
     {
-        var win = _owningWindow ?? throw new InvalidOperationException(_owningWindowReleased
-            ? $"{operation} was called from a component that is no longer mounted in a ReactorWindow."
-            : $"{operation} requires a component rendered in a ReactorWindow. Content hosted by ReactorHostControl, or by a ReactorHost you construct, has no owning window: construct the Microsoft.Windows.Storage.Pickers picker from the hosting window's AppWindow.Id instead.");
-        // Reachable while a closing window's host runs component cleanups: a sibling not yet
-        // cleaned up still holds the window. On a native close the host is disposed first, on
-        // a direct ReactorWindow.Dispose() the window is, so check both.
-        if (win.IsClosingOrDisposed)
-            throw new InvalidOperationException($"{operation} was called after the component's ReactorWindow closed.");
-        if (!win.NativeWindow.DispatcherQueue.HasThreadAccess)
-            throw new InvalidOperationException($"{operation} must be called on the owning window's UI thread.");
-        return win.AppWindow.Id;
+        var owner = _owner ?? throw new InvalidOperationException(_ownerReleased
+            ? $"{operation} was called from a component that is no longer mounted."
+            : $"{operation} requires a component rendered by a Reactor host (a ReactorWindow, ReactorHostControl or ReactorHost).");
+        return owner.TryGetWindowId(out var id) switch
+        {
+            ContentOwnerStatus.Available => id,
+            ContentOwnerStatus.Closed => throw new InvalidOperationException(
+                $"{operation} was called after the component's window closed or its host was disposed."),
+            ContentOwnerStatus.Detached => throw new InvalidOperationException(
+                $"{operation} was called while the component's ReactorHostControl is not loaded in a window."),
+            _ => throw new InvalidOperationException($"{operation} must be called on the owning window's UI thread."),
+        };
     }
 
     /// <summary>
@@ -2143,8 +2158,15 @@ public sealed class RenderContext
     /// </summary>
     public Microsoft.UI.Reactor.WindowState UseWindowState()
     {
-        var win = Microsoft.UI.Reactor.ReactorApp.ActiveHostInternal?.OwningWindow;
-        if (win is null) { _ = UseState(Microsoft.UI.Reactor.WindowState.Normal); return Microsoft.UI.Reactor.WindowState.Normal; }
+        var win = OwningReactorWindow;
+        if (win is null)
+        {
+            // Same slots as the live branch (UseState + UseEffect) so a context can cross the
+            // no-window ↔ window transition without a hook-order mismatch.
+            _ = UseState(Microsoft.UI.Reactor.WindowState.Normal);
+            UseEffect(() => { /* no-op */ }, this);
+            return Microsoft.UI.Reactor.WindowState.Normal;
+        }
         var (state, setState) = UseState(win.State);
         UseEffect(() =>
         {
@@ -2162,8 +2184,13 @@ public sealed class RenderContext
     /// </summary>
     public bool UseIsActive()
     {
-        var win = Microsoft.UI.Reactor.ReactorApp.ActiveHostInternal?.OwningWindow;
-        if (win is null) { _ = UseState(true); return true; }
+        var win = OwningReactorWindow;
+        if (win is null)
+        {
+            _ = UseState(true);
+            UseEffect(() => { /* no-op */ }, this);
+            return true;
+        }
         var (active, setActive) = UseState(win.IsActive);
         UseEffect(() =>
         {
@@ -2190,7 +2217,7 @@ public sealed class RenderContext
     public void UseClosingGuard(Func<bool> canClose)
     {
         ArgumentNullException.ThrowIfNull(canClose);
-        var win = Microsoft.UI.Reactor.ReactorApp.ActiveHostInternal?.OwningWindow;
+        var win = OwningReactorWindow;
         if (win is null) { UseEffect(() => { /* no-op */ }, canClose); return; }
         UseEffect(() =>
         {
@@ -2206,10 +2233,11 @@ public sealed class RenderContext
     /// </summary>
     public uint UseDpi()
     {
-        var win = Microsoft.UI.Reactor.ReactorApp.ActiveHostInternal?.OwningWindow;
+        var win = OwningReactorWindow;
         if (win is null)
         {
             _ = UseState((uint)0);
+            UseEffect(() => { /* no-op */ }, this);
             return DpiHelpers.GetSystemDpiSafe();
         }
 
@@ -2439,7 +2467,8 @@ public sealed class RenderContext
 
     /// <summary>
     /// Window-inferring overload — takes only <paramref name="minWidth"/> and
-    /// resolves the current host's window. Returns false when called outside a
+    /// resolves the window whose host renders this component (see the parameterless
+    /// <see cref="UseWindowSize()"/>). Returns false when the component has no owning
     /// window. (spec 036 §5.2)
     /// </summary>
     public bool UseBreakpoint(double minWidth)
@@ -2496,8 +2525,8 @@ public sealed class RenderContext
         // included), so it no longer renders into its window: a retained delegate must not
         // open a picker over it. Cleared first so a throwing cleanup cannot skip it; a
         // context that renders again (hot-reload reset) re-records it in BeginRender.
-        _owningWindowReleased |= _owningWindow is not null;
-        _owningWindow = null;
+        _ownerReleased |= _owner is not null;
+        _owner = null;
 
         // Phase 1: Run effect cleanups. Drain BOTH the committed cleanup and any
         // staged-but-not-yet-flushed cleanup: when a render changes an effect's
@@ -2593,8 +2622,8 @@ public sealed class RenderContext
         ClearHookState();
         _requestRerender = null;
         _contextScope = null;
-        _owningWindowReleased |= _owningWindow is not null;
-        _owningWindow = null;
+        _ownerReleased |= _owner is not null;
+        _owner = null;
     }
 
     /// <summary>
@@ -2991,15 +3020,15 @@ public sealed class RenderContext
     /// <summary>
     /// Resolve a <see cref="PersistedScope"/> selector to a concrete
     /// <see cref="IPersistedStateScope"/>. <see cref="PersistedScope.Window"/>
-    /// prefers the active host's window scope; falls back to the application
-    /// scope when no window owns the host (test fixtures, headless renders).
+    /// prefers the owning window's scope; falls back to the application
+    /// scope when this content has no owning window (tray flyouts, embeds, headless renders).
     /// </summary>
-    private static IPersistedStateScope? ResolvePersistedScope(PersistedScope scope)
+    private IPersistedStateScope? ResolvePersistedScope(PersistedScope scope)
     {
         switch (scope)
         {
             case PersistedScope.Window:
-                var win = Microsoft.UI.Reactor.ReactorApp.ActiveHostInternal?.OwningWindow;
+                var win = OwningReactorWindow;
                 if (win is not null)
                     return win.PersistedScope;
                 // Fall back to the process-wide scope so unit tests that

@@ -8,37 +8,39 @@ internal sealed partial class JumpListNativeInteropFixture(Harness harness) : Se
 {
     public override async Task RunAsync()
     {
-        // The worker is intentional: source-generated COM does not implicitly
-        // initialize the thread-pool apartment as classic COM activation did.
+        // Exercise worker calls: CoreCLR and Native AOT pool threads already
+        // have implicit MTA membership; the backend's explicit scope is balanced.
         var probe = await Task.Run(ProbeShellLinks);
         H.Check("JumpListNative_LinkCount", probe.Count == 4, $"count={probe.Count}");
         H.Check("JumpListNative_ArgumentsRoundTrip", probe.Arguments, probe.ArgumentsText);
         H.Check("JumpListNative_ForeignExecutableExcluded", probe.ForeignExcluded);
         H.Check("JumpListNative_TitleWritten", probe.Title == "日本語 title", $"title={probe.Title}");
         H.Check("JumpListNative_SeparatorWritten", probe.Separator == 0xffff, $"separator={probe.Separator}");
+        if (PackageRuntime.IsPackaged) return; // Public WinRT coverage has its own packaged fixture.
 
         // Only this unique test identity is touched and deleted. Never mutate
         // the user's or another fixture's destination tracking data.
         string testId = "Microsoft.UI.Reactor.JumpListAotTest." + Guid.NewGuid().ToString("N");
+        var previousId = JumpList.AppUserModelId;
+        var previousRecent = JumpList.ShowRecent;
+        var previousFrequent = JumpList.ShowFrequent;
         try
         {
-            var result = await Task.Run(() =>
-            {
-                var before = JumpListComInterop.GetRemovedArguments(testId);
-                bool first = JumpListComInterop.UpdateUnpackaged(testId,
-                    new[] { JumpListItem.ForUri("Native test", "reactor-test://first") }, false, false);
-                var between = JumpListComInterop.GetRemovedArguments(testId);
-                bool second = JumpListComInterop.UpdateUnpackaged(testId,
-                    new[] { JumpListItem.ForUri("Updated test", "reactor-test://second") }, false, false);
-                var after = JumpListComInterop.GetRemovedArguments(testId);
-                return (first, second, Count: before.Count + between.Count + after.Count);
-            });
-            H.Check("JumpListNative_CommitAccepted", result.first);
-            H.Check("JumpListNative_UpdateAfterReadAccepted", result.second);
-            H.Check("JumpListNative_NewIdentityHasNoRemovals", result.Count == 0, $"count={result.Count}");
+            JumpList.AppUserModelId = testId;
+            JumpList.ShowRecent = false;
+            JumpList.ShowFrequent = false;
+            var before = await JumpList.GetRemovedArgumentsAsync();
+            var first = await JumpList.UpdateAsync(new[] { JumpListItem.ForUri("Native test", "reactor-test://first") });
+            var second = await JumpList.UpdateAsync(new[] { JumpListItem.ForUri("Updated test", "reactor-test://second") });
+            var cleared = await JumpList.ClearAsync();
+            var after = await JumpList.GetRemovedArgumentsAsync();
+            H.Check("JumpListNative_PublicApisReturnSnapshots", before.Count + first.Count + second.Count + cleared.Count + after.Count == 0);
         }
         finally
         {
+            JumpList.AppUserModelId = previousId;
+            JumpList.ShowRecent = previousRecent;
+            JumpList.ShowFrequent = previousFrequent;
             await Task.Run(() => JumpListComInterop.DeleteList(testId));
         }
     }

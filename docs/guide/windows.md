@@ -50,7 +50,15 @@ Caveats:
   keeps closing a transient floating window from firing
   `OnPrimaryWindowClosed` and exiting the app.
 - `UseWindow()` returns the owning `ReactorWindow` inside a window component and
-  `null` outside one (for example tray flyouts).
+  `null` outside one (for example tray flyouts and `ReactorHostControl` embeds).
+  The owner is the window whose host renders the component, including nested
+  components and virtualized rows, even while another window is the most
+  recently opened or rendered one. The other window hooks (`UseDpi`,
+  `UseWindowState`, `UseIsActive`, `UseClosingGuard`, …) resolve the same window
+  and return their "outside a window" values when there is none; there is no
+  fallback to another open window. `ReactorHostControl` content that needs its
+  hosting window can pass it explicitly (`UseWindowSize(window)`,
+  `UseBreakpoint(window, minWidth)`) or read `XamlRoot.RasterizationScale` for DPI.
 
 ## Sizing & resizing
 
@@ -766,6 +774,15 @@ startup callback. The recommended convention is to put a deep-link URI in
 a [`DeepLinkMap<TRoute>`](navigation.md):
 
 ```csharp
+// In a real app, load this list from the app's tracked destinations.
+private static readonly List<JumpListItem> Destinations = [
+    JumpListItem.ForUri("New document", "contoso://new"),
+    JumpListItem.ForUri("Open dashboard", "contoso://dashboard",
+        description: "Jump straight to the dashboard"),
+    new JumpListItem("Report a bug", "contoso://bug",
+        Kind: JumpListItemKind.Custom, GroupCategory: "Help"),
+];
+
 // Unpackaged apps must set an AppUserModelId once, before the first
 // UpdateAsync — the shell has no other stable identity to hang the
 // jump list off. Packaged apps inherit it from the manifest.
@@ -774,14 +791,19 @@ public static async Task PublishAsync()
     JumpList.AppUserModelId = "Contoso.Reactor.Demo";
     JumpList.ShowRecent = true;
 
-    await JumpList.UpdateAsync([
-        JumpListItem.ForUri("New document", "contoso://new"),
-        JumpListItem.ForUri("Open dashboard", "contoso://dashboard",
-            description: "Jump straight to the dashboard"),
-        new JumpListItem("Report a bug", "contoso://bug",
-            Kind: JumpListItemKind.Custom, GroupCategory: "Help"),
-    ]);
+    var removed = await JumpList.GetRemovedArgumentsAsync();
+    PruneDestinations(removed);
+    removed = await JumpList.UpdateAsync(Destinations);
+    // Also process removals made after the query. A successful update
+    // clears the OS records, even for entries absent from this batch.
+    PruneDestinations(removed);
+    // Persist the updated tracked destinations in your app's data store.
+    // New user activity can explicitly add an eligible destination again.
 }
+
+private static void PruneDestinations(IReadOnlyList<string> removed) =>
+    Destinations.RemoveAll(item => item.Kind != JumpListItemKind.Separator
+        && removed.Contains(item.Arguments, StringComparer.Ordinal));
 
 // Entries come back as a plain process re-launch. Resolve the argument
 // string through the same DeepLinkMap the app already uses for routes;
@@ -804,8 +826,8 @@ public static void Start(DeepLinkMap<string> routes) =>
 | --- | --- |
 | `JumpList.AppUserModelId` | Shell identity. Required before the first `UpdateAsync` on unpackaged apps; ignored under MSIX. |
 | `JumpList.ShowRecent` / `ShowFrequent` | Toggle the OS-managed categories. Contents are shell-owned. |
-| `JumpList.UpdateAsync(items)` | Replace the whole list. UI thread only. |
-| `JumpList.ClearAsync()` | Remove the app's entries. |
+| `JumpList.UpdateAsync(items)` | Replace the whole list and return user removals observed in that transaction. UI thread only. |
+| `JumpList.ClearAsync()` | Remove the app's entries and return the transaction's observed removals. |
 | `JumpList.GetRemovedArgumentsAsync()` | Read user-removed entries' argument strings without updating the list. UI thread only. |
 | `JumpListItem.ForUri(...)` | Deep-link entry — `Arguments` is the URI. |
 | `JumpListItem.ForCommandLine(...)` | argv-style entry; escapes each value for `CommandLineToArgvW`. |
@@ -826,14 +848,18 @@ Caveats:
 - `UpdateAsync` validates the whole batch before touching the shell, so one
   bad entry never leaves a half-populated list behind. Non-separator entries
   must have a non-empty `Title`.
-- **Respect user removals.** Before updating, call
-  `GetRemovedArgumentsAsync()` and remove matching arguments from your app's
-  destination tracking data (not the underlying files). The query does not
-  acknowledge removals. `UpdateAsync` also skips destinations currently marked
-  as removed by Windows, preventing an unpackaged custom category from being
-  rejected as a whole. Windows can clear its removal records after an update;
-  this is not a permanent blacklist. Only offer a destination again after new
-  user activity. Match arguments with `StringComparer.Ordinal`.
+- **Respect user removals.** Before updating, query `GetRemovedArgumentsAsync()`
+  and prune matching arguments from the app's destination tracking data (not the
+  underlying files). Also retain the arguments returned by `UpdateAsync` or
+  `ClearAsync`: they capture removals observed inside that transaction, including
+  removals arriving after the earlier query and removals absent from the new batch.
+  A successful update clears Windows' removal records. Without updating its own
+  tracking data, an app can reintroduce a removed destination on its next refresh.
+  Only offer it again after new user activity; compare arguments ordinally.
+  Results report observations, not commit success; logged shell HRESULT failures
+  keep the existing non-throwing behavior. The return type is now
+  `Task<IReadOnlyList<string>>`; await-only source callers continue to compile,
+  but existing consumers must rebuild their binaries.
 - On unpackaged apps, removal queries cover shell links targeting the current
   executable, which is the shape this wrapper creates, not `IShellItem` file
   destinations or links to other executables. Removal filtering applies to
@@ -949,20 +975,17 @@ Caveats:
   `Task.Run`. Their `Pick*` names keep the hook-rules analyzer quiet in handlers.
 - The owner is the window whose host rendered the component (including nested and
   virtualized-row components), not whichever window is active when the handler
-  runs. Once the component unmounts (including when its root is replaced) or its
-  window closes, the call throws `InvalidOperationException`.
+  runs. That is the `ReactorWindow`, the `Window` a `ReactorHost` was constructed
+  over, or for `ReactorHostControl` the window the control is loaded in when the
+  method is called (a reparented control follows its new window). Once the
+  component unmounts (including when its root is replaced or its
+  `ReactorHostControl` is disposed) or its window closes, the call throws
+  `InvalidOperationException`. It also throws while a `ReactorHostControl` is
+  unloaded (not in any window).
 - Option validation (missing or duplicate file-type choices) throws `ArgumentException`
   before any dialog opens. Windows validates extension syntax and folder paths.
 - Picker errors propagate to the caller; cancellation is not an error.
 - Framework tests use an internal picker-service seam instead of opening modal dialogs.
-- Content hosted through `ReactorHostControl` (or a `ReactorHost` you construct
-  yourself) has no owning `ReactorWindow`, so these methods throw
-  `InvalidOperationException` there. Construct the native picker from the window
-  that hosts the control instead, for example
-  `new Microsoft.Windows.Storage.Pickers.FileOpenPicker(hostWindow.AppWindow.Id)`.
-  Code that only has an element can use its
-  `XamlRoot.ContentIslandEnvironment.AppWindowId` (for example from
-  `UseElementRef<FrameworkElement>().Current?.XamlRoot`).
 
 ## WPF / UWP migration map
 

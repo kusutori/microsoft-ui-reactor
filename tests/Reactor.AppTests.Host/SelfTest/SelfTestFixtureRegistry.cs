@@ -10,6 +10,7 @@ internal static class SelfTestFixtureRegistry
     public static readonly string[] AllFixtures =
     [
         "JumpList_NativeInterop",
+        "Packaged_JumpList",
         "SourceMapReadPath_Enabled",
         "HostDiag_WindowHostIsListedAndBoundariesAreTagged",
         "HostDiag_FlagOffLeavesBoundariesUntagged",
@@ -1565,6 +1566,15 @@ internal static class SelfTestFixtureRegistry
         "Pickers_OwningWindow",
         "Pickers_OwnerSurvivesMidRenderOpen",
         "Pickers_ClosedWindowRejectedDuringCleanup",
+        "Pickers_HostControl",
+        "Pickers_RawWindowHost",
+        "Pickers_EmbeddedTeardownAndFunctionRoots",
+        "WindowHookOwner_VirtualizedRow",
+        "WindowHookOwner_MidRenderOpen",
+        "WindowHookOwner_HostControlHasNoOwner",
+        "WindowHookOwner_EmbeddedTitleBar",
+        "WindowHookOwner_EmbeddedTitleBarFollowsWindow",
+        "WindowHookOwner_SlotShapeAcrossTransition",
         "AspectRatio_Suite_Math",
         "AspectRatio_Suite_Conform",
         "WindowStyle_ToolWindowExStyleRemoved",
@@ -2067,6 +2077,7 @@ internal static class SelfTestFixtureRegistry
         new(StringComparer.Ordinal)
         {
             ["Packaged_IdentityGuard"] = SelfTestTier.Packaged,
+            ["Packaged_JumpList"] = SelfTestTier.Packaged,
             ["Packaged_ResourceResolution"] = SelfTestTier.Packaged,
             ["Packaged_SettingsStoreRoundTrip"] = SelfTestTier.Packaged,
             ["Packaged_WindowIconFromResource"] = SelfTestTier.Packaged,
@@ -2153,6 +2164,7 @@ internal static class SelfTestFixtureRegistry
     public static SelfTestFixtureBase? Create(string name, Harness harness) => name switch
     {
         "JumpList_NativeInterop" => new JumpListNativeInteropFixture(harness),
+        "Packaged_JumpList" => new PackagedJumpListFixture(harness),
         "HarnessGuard_ClickButtonFailsLoudly" => new HarnessGuardFixtures.ClickButtonFailsLoudly(harness),
         "ErrorBoundary_CatchesRenderError" => new ErrorBoundaryFixtures.CatchesRenderError(harness),
         "ErrorBoundary_Recovery" => new ErrorBoundaryFixtures.Recovery(harness),
@@ -3675,6 +3687,15 @@ internal static class SelfTestFixtureRegistry
         "Pickers_OwningWindow" => new PickersFixtures.OwningWindow(harness),
         "Pickers_OwnerSurvivesMidRenderOpen" => new PickersFixtures.OwnerSurvivesMidRenderOpen(harness),
         "Pickers_ClosedWindowRejectedDuringCleanup" => new PickersFixtures.ClosedWindowRejectedDuringCleanup(harness),
+        "Pickers_HostControl" => new PickersFixtures.HostControl(harness),
+        "Pickers_RawWindowHost" => new PickersFixtures.RawWindowHost(harness),
+        "Pickers_EmbeddedTeardownAndFunctionRoots" => new PickersFixtures.EmbeddedTeardownAndFunctionRoots(harness),
+        "WindowHookOwner_VirtualizedRow" => new WindowHookOwnerFixtures.VirtualizedRow(harness),
+        "WindowHookOwner_MidRenderOpen" => new WindowHookOwnerFixtures.MidRenderOpen(harness),
+        "WindowHookOwner_HostControlHasNoOwner" => new WindowHookOwnerFixtures.HostControlHasNoOwner(harness),
+        "WindowHookOwner_EmbeddedTitleBar" => new WindowHookOwnerFixtures.EmbeddedTitleBar(harness),
+        "WindowHookOwner_EmbeddedTitleBarFollowsWindow" => new WindowHookOwnerFixtures.EmbeddedTitleBarFollowsWindow(harness),
+        "WindowHookOwner_SlotShapeAcrossTransition" => new WindowHookOwnerFixtures.SlotShapeAcrossTransition(harness),
         "UseSpec054Hooks_Suite" => new Phase7WindowingFixtures.UseSpec054HooksSuite(harness),
         // Spec 036/045 — issue #647 multi-window teardown hardening regression.
         "Window647_PrimaryElectionExcludesAuxiliary" => new WindowLifecycleHardeningFixtures.PrimaryElectionExcludesAuxiliary(harness),

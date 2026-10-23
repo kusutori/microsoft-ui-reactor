@@ -15,7 +15,7 @@ namespace Microsoft.UI.Reactor.Hosting;
 /// Manages the render loop: when state changes, re-renders the component
 /// and reconciles the virtual tree against the real WinUI control tree.
 /// </summary>
-public sealed class ReactorHost : IDisposable, Core.Diagnostics.IReactorDiagnosticHost, IThemeResourceListener
+public sealed class ReactorHost : IDisposable, Core.Diagnostics.IReactorDiagnosticHost, IThemeResourceListener, IContentOwner
 {
 #pragma warning disable CS0414 // Design constant for render-loop limiting; wiring pending
     private static readonly int MaxRenderIterations = 50;
@@ -187,13 +187,27 @@ public sealed class ReactorHost : IDisposable, Core.Diagnostics.IReactorDiagnost
     public ReactorWindow? OwningWindow
     {
         get => Volatile.Read(ref _owningWindow);
-        internal set
-        {
-            Volatile.Write(ref _owningWindow, value);
-            _reconciler.OwningWindow = value;
-        }
+        internal set => Volatile.Write(ref _owningWindow, value);
     }
     private ReactorWindow? _owningWindow;
+
+    ReactorWindow? IContentOwner.ReactorWindow => OwningWindow;
+
+    // The window this host renders into owns its content, whether a ReactorWindow claimed the
+    // host or it was constructed over a raw Window (spec 054 §8.3).
+    ContentOwnerStatus IContentOwner.TryGetWindowId(out WindowId id)
+    {
+        id = default;
+        // Reachable while a closing window's host runs component cleanups: a sibling not yet
+        // cleaned up still records this host. On a native close the host is disposed first, on
+        // a direct ReactorWindow.Dispose() the window is, so check both.
+        if (_disposed || Volatile.Read(ref _windowClosed) || OwningWindow is { IsClosingOrDisposed: true })
+            return ContentOwnerStatus.Closed;
+        if (!_dispatcherQueue.HasThreadAccess)
+            return ContentOwnerStatus.WrongThread;
+        id = _window.AppWindow.Id;
+        return ContentOwnerStatus.Available;
+    }
 
     /// <summary>
     /// The currently mounted root Component, if any. Used by MCP devtools to
@@ -301,9 +315,11 @@ public sealed class ReactorHost : IDisposable, Core.Diagnostics.IReactorDiagnost
         _reconciler.DiagnosticsRootResolver = ResolveDiagnosticsRoot;
         _reconciler.RenderErrorHandlerProvider = () => EffectiveRenderErrorHandler;
         _window = window;
+        _reconciler.HostWindow = window;
         _backdropApplier = new BackdropApplier(window);
         _dispatcherQueue = DispatcherQueue.GetForCurrentThread();
         _reconciler.OwningDispatcher = _dispatcherQueue;
+        _reconciler.Owner = this;
         // Off-thread rerenders marshal via ReactorApp.UIDispatcher (captured
         // in OnLaunched). For embedded ReactorHostControl scenarios where
         // there's no Reactor.Run, fall back to seeding UIDispatcher with this
@@ -982,13 +998,13 @@ public sealed class ReactorHost : IDisposable, Core.Diagnostics.IReactorDiagnost
         if (hotReloadRender)
             MigrateHotReloadState();
 
-        // Multi-window: hooks (UseWindow, UseDpi, UseWindowState, UseIsActive,
-        // UseClosingGuard, parameterless UseWindowSize) resolve "the rendering
-        // host" via ReactorApp.ActiveHostInternal. Without a per-render push,
-        // the ctor-time assignment of the most-recently-constructed host wins
-        // permanently and a second window's components observe the wrong
-        // owning window. Restore the previous value in the finally so
-        // re-entrant renders unwind correctly. (spec 036 §3.4 / §7.1)
+        // Multi-window: scope ReactorApp.ActiveHostInternal to this pass for the process-wide
+        // consumers that still read it (hot reload, charting activation, devtools). Window
+        // hooks and TitleBar handling do NOT: they read the owner this host's reconciler
+        // records on each RenderContext, because this static is repointed by a window opened
+        // mid-render and is not scoped at all for virtualized-row renders. Restore the
+        // previous value in the finally so re-entrant renders unwind correctly.
+        // (spec 036 §3.4 / §7.1, issue #1396)
         var prevActiveHost = ReactorApp.ActiveHostInternal;
         ReactorApp.ActiveHostInternal = this;
 
@@ -1068,7 +1084,7 @@ public sealed class ReactorHost : IDisposable, Core.Diagnostics.IReactorDiagnost
             // root and then throw, and the failure belongs to the component that threw.
             if (_rootComponent is { } renderingRoot)
             {
-                renderingRoot.Context.BeginRender(rerender, OwningWindow);
+                renderingRoot.Context.BeginRender(rerender, this);
                 try
                 {
                     using (ValidationRenderScope.Begin(null))
@@ -1103,7 +1119,7 @@ public sealed class ReactorHost : IDisposable, Core.Diagnostics.IReactorDiagnost
             }
             else if (_rootRenderFunc is not null && _funcContext is not null)
             {
-                _funcContext.BeginRender(rerender, OwningWindow);
+                _funcContext.BeginRender(rerender, this);
                 try
                 {
                     using (ValidationRenderScope.Begin(null))

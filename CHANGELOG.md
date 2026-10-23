@@ -28,6 +28,21 @@ Conventions for contributors:
 
 ### Added
 
+- `JumpList.GetRemovedArgumentsAsync()` reads user removals without updating the list.
+  `UpdateAsync` and `ClearAsync` now return the removals observed in their own transaction,
+  allowing apps to retain the feedback before Windows clears it. Await-only callers
+  remain source-compatible; existing binaries must be rebuilt for the changed return types
+  (spec 036 §11.3).
+
+- **ReactorGallery catches up with recent framework features.** A new **System →
+  File pickers** page demonstrates `PickFileAsync`, `PickMultipleFilesAsync`
+  (with labelled `FileTypeChoices`), `PickFolderAsync` / `PickMultipleFoldersAsync`
+  and `PickSaveFileAsync`; a **Patterns → ErrorBoundary** page covers catch-and-retry,
+  static fallbacks, and the built-in fallback a `RenderErrorHandler` replaces; the
+  Grid page adds `GridSize.MinSize` / `MaxSize`; and the TitleBar page shows icon
+  inheritance and `.NoIcon()`. The gallery now declares its window icon once via
+  `ReactorApp.Run(icon:)` and its shell title bar inherits it.
+
 - **Component inspection for devtools: `ReactorDiagnostics.DescribeComponent`,
   `TrySetState`, `Rerender`, `GetAppliedProperties`, `GetReferenceEdges`.** An
   inspector can go from a realized control to the component behind it: its name,
@@ -256,7 +271,9 @@ Conventions for contributors:
   `FolderPickerOptions.FileTypeFilter` and `SaveFilePickerOptions.SuggestedSaveFile` are
   removed. The dialog is owned by the window whose host rendered the component (previously
   whichever window was most recently active, which with several windows picked the wrong one
-  and threw after any window closed), and the pickers now work in elevated apps.
+  and threw after any window closed), and the pickers now work in elevated apps. They also
+  work in content hosted by `ReactorHostControl` (owned by the window the control is loaded
+  in; issue #1395) and by a `ReactorHost` constructed over a raw `Window`.
 - **The doc pipeline moved out of `mur`, and doc screenshots are captured with winapp's
   Windows Graphics Capture.** `mur docs` is now `dotnet run --project tools/Reactor.DocPipeline --`
   (`compile`, `check-tier`, `render-diagrams`, `new-diagram`; same options). It is a contributor
@@ -365,9 +382,37 @@ Conventions for contributors:
 
 - **Unpackaged Jump Lists now use source-generated COM interop under Native AOT.**
   Shell link activation, property stores and removal queries no longer depend on
-  built-in COM marshalling. Worker calls initialize their COM apartment and
+  built-in COM marshalling. Worker calls use a balanced explicit COM apartment scope and
   release transaction-owned interfaces deterministically. See the
   [Jump list guide](docs/guide/windows.md#jump-list) (spec 036 §11.3).
+- **Source-map generator no longer fails under `dotnet watch`** (issue #1404, spec 010).
+  When Reactor is a project reference, Hot Reload's workspace compilation sees Reactor's
+  symbols with their source, so a component calling a hook that is not on `Component`
+  (`this.UseElementRef<T>()`, `this.UseElementFocus()`) made `SourceMapInterceptorGenerator`
+  read a syntax tree outside the app's compilation and throw `CS8785`, dropping every call
+  site in the edited project until restart. Hooks declared in Reactor are now recognised by
+  assembly, and a custom hook declared in another project's source counts as an unknown
+  number of slots — what a command-line build already reported.
+
+- **Window hooks resolve the window that renders the component, not the most recently
+  active host** (issue #1396, spec 036 §7.1). `UseWindow`, the parameterless
+  `UseWindowSize`, `UseWindowPosition`, `UseIsCovered`, `UseWindowAspectRatio`,
+  `UseWindowDragMove`, `UseWindowState`, `UseIsActive`, `UseClosingGuard`, `UseDpi`, the
+  window-inferring `UseBreakpoint(minWidth)`,
+  `UsePersisted(PersistedScope.Window)` and the `TitleBar` element now read the owner the
+  host's reconciler records on each component, the same owner the picker methods use. Before,
+  they read the process-wide active host, so a sibling rendered after a window opened
+  mid-render (`UseOpenWindow`) and a virtualized row realized by `LazyVStack` /
+  `ElementFactory` got another window: its size, DPI and persisted scope, and a closing guard,
+  aspect lock or `TitleBar` registered on it. Content with no owning `ReactorWindow` (tray
+  flyouts, `ReactorHostControl`, a `ReactorHost` over a raw `Window`) gets the documented
+  "outside a window" values. Behaviour change: `ReactorHostControl` content previously saw an
+  unrelated host's window and now sees none. A `TitleBar` inside it registers, once loaded,
+  with the `ReactorWindow` that actually contains the control (found from its `XamlRoot`)
+  instead of with whichever host was active, so that window is content-extended and prepared
+  for close as issue #537 requires. Embedded content that needs its window can pass it explicitly
+  (`UseWindowSize(window)`, `UseBreakpoint(window, minWidth)`) or read
+  `XamlRoot.RasterizationScale` for DPI.
 
 - **Replacing a host's root no longer leaves the old root running** (issue #1326).
   `ReactorHost.Mount(...)` and `ReactorHostControl.Mount(...)` now retire the

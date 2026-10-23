@@ -25,7 +25,7 @@ internal static partial class JumpListComInterop
     private const int NoInterface = unchecked((int)0x80004002);
     private const int ChangedApartmentMode = unchecked((int)0x80010106);
 
-    public static bool UpdateUnpackaged(
+    public static (bool Succeeded, IReadOnlyList<string> RemovedArguments) UpdateUnpackaged(
         string appUserModelId, IReadOnlyList<JumpListItem> items,
         bool showRecent, bool showFrequent)
     {
@@ -35,6 +35,14 @@ internal static partial class JumpListComInterop
         using var destination = Create<ICustomDestinationList>(DestinationListClass, DestinationListInterface);
         var list = destination.Value;
         Marshal.ThrowExceptionForHR(list.SetAppID(appUserModelId));
+        return UpdateUnpackaged(list, items, showRecent, showFrequent);
+    }
+
+    // The transaction is shared by native activation and controlled shell tests.
+    internal static (bool Succeeded, IReadOnlyList<string> RemovedArguments) UpdateUnpackaged(
+        ICustomDestinationList list, IReadOnlyList<JumpListItem> items,
+        bool showRecent, bool showFrequent)
+    {
         bool begun = false;
         bool committed = false;
         try
@@ -44,13 +52,12 @@ internal static partial class JumpListComInterop
             {
                 Release(removedPointer);
                 DiagnosticLog.HResultFailed(LogCategory.Shell, "JumpList.BeginList", hr);
-                return false;
+                return (false, Array.Empty<string>());
             }
             begun = true;
             using var removed = WrapOwned<IObjectArray>(removedPointer);
-            items = JumpList.ExcludeRemovedItems(items,
-                ReadRemovedArguments(removed.Value, Environment.ProcessPath ?? string.Empty),
-                customCategoriesOnly: true);
+            var removedArguments = ReadRemovedArguments(removed.Value, Environment.ProcessPath ?? string.Empty);
+            items = JumpList.ExcludeRemovedItems(items, removedArguments, customCategoriesOnly: true);
 
             var tasks = new List<JumpListItem>();
             bool accepted = true;
@@ -96,7 +103,7 @@ internal static partial class JumpListComInterop
             int commitHr = list.CommitList();
             committed = commitHr >= 0;
             LogFailure("JumpList.CommitList", commitHr);
-            return accepted && committed;
+            return (accepted && committed, removedArguments);
         }
         finally
         {
