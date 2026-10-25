@@ -310,7 +310,13 @@ class ConnectedAnimationDemo : Component
 
 ![Connected animation](images/animation/connected-animation.png)
 
-Both the source and destination elements must use the same key string. The
+For a `NavigationHost` page transition, mark both elements with the same key
+and select `NavigationTransition.Connected(key)` for that navigation. The host
+prepares the selected source before page teardown, waits for the destination's
+layout, and coordinates caching and back/forward navigation. This does not rely
+on the old page unmounting. See [navigation](navigation.md#page-transitions).
+
+Outside that navigation-owned path, both the source and destination elements must use the same key string. The
 animation runs automatically when the reconciler detects the transition.
 Source and destination must appear in the **same render** — the reconciler
 publishes the outgoing element's snapshot during the reconcile pass and plays

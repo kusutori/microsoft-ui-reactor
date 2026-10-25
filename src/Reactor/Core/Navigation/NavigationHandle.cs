@@ -88,6 +88,9 @@ internal interface INavigationHandle
 public sealed class NavigationHandle<TRoute> : INavigationHandle where TRoute : notnull
 {
     private readonly NavigationStack<TRoute> _stack;
+    // Runtime-only edge metadata, not native controls or serialized UI state.
+    private readonly List<ConnectedTransition?> _connectedBack = new();
+    private readonly List<ConnectedTransition?> _connectedForward = new();
 
     // Captured at construction. UseNavigation creates the handle during render on
     // the UI thread, so this is the render/UI thread id used by the marshal gate.
@@ -96,6 +99,8 @@ public sealed class NavigationHandle<TRoute> : INavigationHandle where TRoute : 
     internal NavigationHandle(NavigationStack<TRoute> stack)
     {
         _stack = stack;
+        for (var i = 0; i < stack.BackStack.Count; i++) _connectedBack.Add(null);
+        for (var i = 0; i < stack.ForwardStack.Count; i++) _connectedForward.Add(null);
     }
 
     // True when the caller is off the UI thread captured at construction. Kept as a
@@ -184,6 +189,7 @@ public sealed class NavigationHandle<TRoute> : INavigationHandle where TRoute : 
             success = _stack.Replace(route);
             if (success)
             {
+                InvalidateConnectedEdges();
                 NavigationDiagnostics.OnNavigationCompleted(previous!, route!, NavigationMode.Replace);
                 Navigated?.Invoke(new NavigationEventArgs<TRoute>(route, previous, NavigationMode.Replace, options));
                 RouteChanged?.Invoke();
@@ -194,6 +200,8 @@ public sealed class NavigationHandle<TRoute> : INavigationHandle where TRoute : 
             success = _stack.Push(route);
             if (success)
             {
+                _connectedBack.Add(options?.Transition as ConnectedTransition);
+                _connectedForward.Clear();
                 NavigationDiagnostics.OnNavigationCompleted(previous!, route!, NavigationMode.Push);
                 Navigated?.Invoke(new NavigationEventArgs<TRoute>(route, previous, NavigationMode.Push, options));
                 RouteChanged?.Invoke();
@@ -224,6 +232,10 @@ public sealed class NavigationHandle<TRoute> : INavigationHandle where TRoute : 
         if (!_stack.Pop())
             return false;
 
+        _pendingTransitionOverride = _connectedBack[^1];
+        _connectedForward.Add(_connectedBack[^1]);
+        _connectedBack.RemoveAt(_connectedBack.Count - 1);
+
         Navigated?.Invoke(new NavigationEventArgs<TRoute>(_stack.Current, previous, NavigationMode.Pop));
         RouteChanged?.Invoke();
         return true;
@@ -246,6 +258,10 @@ public sealed class NavigationHandle<TRoute> : INavigationHandle where TRoute : 
         var previous = _stack.Current;
         if (!_stack.Forward())
             return false;
+
+        _pendingTransitionOverride = _connectedForward[^1];
+        _connectedBack.Add(_connectedForward[^1]);
+        _connectedForward.RemoveAt(_connectedForward.Count - 1);
 
         Navigated?.Invoke(new NavigationEventArgs<TRoute>(_stack.Current, previous, NavigationMode.Forward));
         RouteChanged?.Invoke();
@@ -270,6 +286,9 @@ public sealed class NavigationHandle<TRoute> : INavigationHandle where TRoute : 
         if (!_stack.Replace(route))
             return false;
 
+        _pendingTransitionOverride = null;
+        InvalidateConnectedEdges();
+
         Navigated?.Invoke(new NavigationEventArgs<TRoute>(route, previous, NavigationMode.Replace));
         RouteChanged?.Invoke();
         return true;
@@ -293,6 +312,10 @@ public sealed class NavigationHandle<TRoute> : INavigationHandle where TRoute : 
         if (!_stack.Reset(route))
             return false;
 
+        _pendingTransitionOverride = null;
+        _connectedBack.Clear();
+        _connectedForward.Clear();
+
         Navigated?.Invoke(new NavigationEventArgs<TRoute>(route, previous, NavigationMode.Reset));
         RouteChanged?.Invoke();
         return true;
@@ -313,8 +336,17 @@ public sealed class NavigationHandle<TRoute> : INavigationHandle where TRoute : 
         if (IsOffUIThread && MarshalOff(nameof(PopTo), () => PopTo(predicate))) return true;
 
         var previous = _stack.Current;
+        var previousDepth = _stack.Depth;
         if (!_stack.PopTo(predicate))
             return false;
+
+        var removed = previousDepth - _stack.Depth;
+        _pendingTransitionOverride = removed == 1 ? _connectedBack[^1] : null;
+        for (var i = 0; i < removed; i++)
+        {
+            _connectedForward.Add(_connectedBack[^1]);
+            _connectedBack.RemoveAt(_connectedBack.Count - 1);
+        }
 
         Navigated?.Invoke(new NavigationEventArgs<TRoute>(_stack.Current, previous, NavigationMode.Pop));
         RouteChanged?.Invoke();
@@ -379,7 +411,19 @@ public sealed class NavigationHandle<TRoute> : INavigationHandle where TRoute : 
         var previous = _stack.Current;
         _stack.RestoreState(state.BackStack, state.Current, state.ForwardStack);
 
+        _pendingTransitionOverride = null;
+        _connectedBack.Clear();
+        _connectedForward.Clear();
+        for (var i = 0; i < state.BackStack.Count; i++) _connectedBack.Add(null);
+        for (var i = 0; i < state.ForwardStack.Count; i++) _connectedForward.Add(null);
+
         Navigated?.Invoke(new NavigationEventArgs<TRoute>(state.Current, previous, NavigationMode.Reset));
         RouteChanged?.Invoke();
+    }
+
+    private void InvalidateConnectedEdges()
+    {
+        if (_connectedBack.Count > 0) _connectedBack[^1] = null;
+        if (_connectedForward.Count > 0) _connectedForward[^1] = null;
     }
 }

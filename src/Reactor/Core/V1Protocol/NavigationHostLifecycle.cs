@@ -49,7 +49,7 @@ internal static class NavigationHostLifecycle
         if (element.CacheMode != Navigation.NavigationCacheMode.Disabled)
         {
             node.Cache = new Navigation.NavigationCache(
-                element.CacheSize, evicted => reconciler.UnmountChild(evicted));
+                element.CacheSize, evicted => Navigation.ConnectedNavigationOperation.UnmountPage(reconciler, evicted));
         }
 
         // Subscribe to route changes so NavigationHost updates even if an intermediate
@@ -154,6 +154,9 @@ internal static class NavigationHostLifecycle
         else
         {
             // Route changed — transition from old page to new page.
+            var transitionGeneration = ++node.TransitionGeneration;
+            node.ConnectedOperation?.Dispose();
+            node.ConnectedOperation = null;
             // Lifecycle sequence per spec:
             //   1. onNavigatingFrom (already done by LifecycleGuard before stack mutation)
             //   2-3. Stack mutation (already done)
@@ -194,6 +197,24 @@ internal static class NavigationHostLifecycle
                 newChildElement = cached.LastElement;
                 node.Cache.Remove(currentRoute);
                 wasCacheHit = true;
+                if (transition is Navigation.ConnectedTransition && newChildControl is { } cachedControl)
+                {
+                    // Route payloads can change while the page is cached (for
+                    // example selecting a second device for the same detail route).
+                    // Reconcile current props before looking up the shared key.
+                    var refreshedElement = node.RouteMap(currentRoute);
+                    var candidates = Navigation.ConnectedNavigationOperation.Collect(reconciler, cachedControl);
+                    foreach (var candidate in candidates) reconciler.ClaimNavigationConnectedElement(candidate);
+                    try
+                    {
+                        newChildControl = reconciler.Reconcile(newChildElement, refreshedElement, cachedControl, requestRerender);
+                        newChildElement = refreshedElement;
+                    }
+                    finally
+                    {
+                        foreach (var candidate in candidates) reconciler.ReleaseNavigationConnectedElement(candidate);
+                    }
+                }
             }
             else
             {
@@ -219,7 +240,7 @@ internal static class NavigationHostLifecycle
             // Action to finalize the old page (cache or unmount)
             void FinalizeOldPage(UIElement? oldCtrl, Element? oldElem, object? oldRoute)
             {
-                if (oldCtrl is null) return;
+                if (oldCtrl is null || ReferenceEquals(oldCtrl, node.CurrentChildControl)) return;
                 grid.Children.Remove(oldCtrl);
 
                 if (node.Cache is not null && node.CacheMode != Navigation.NavigationCacheMode.Disabled
@@ -236,7 +257,7 @@ internal static class NavigationHostLifecycle
                 }
                 else
                 {
-                    reconciler.UnmountChild(oldCtrl);
+                    Navigation.ConnectedNavigationOperation.UnmountPage(reconciler, oldCtrl);
                 }
             }
 
@@ -264,17 +285,33 @@ internal static class NavigationHostLifecycle
                 var capturedPreviousRoute = pendingPreviousRoute;
                 var capturedOldHooks = oldHooks;
 
-                Navigation.TransitionEngine.RunTransition(
-                    capturedOldControl!, capturedNewControl, transition, capturedMode,
-                    onComplete: () =>
+                void CompleteTransition()
+                {
+                    if (node.TransitionGeneration == transitionGeneration)
                     {
                         node.TransitionInProgress = false;
-                        FinalizeOldPage(capturedOldControl, capturedOldElement, capturedOldRoute);
+                        node.ConnectedOperation = null;
+                    }
+                    FinalizeOldPage(capturedOldControl, capturedOldElement, capturedOldRoute);
 
+                    if (node.TransitionGeneration == transitionGeneration)
+                    {
                         reconciler.InvokePostNavigationLifecycle(
                             capturedNewControl, capturedOldHooks,
                             capturedCurrentRoute, capturedPreviousRoute, capturedMode);
-                    });
+                    }
+                }
+
+                if (transition is Navigation.ConnectedTransition connected)
+                {
+                    var operation = new Navigation.ConnectedNavigationOperation(
+                        reconciler, capturedOldControl!, capturedNewControl, connected.AnimationKey,
+                        capturedMode, CompleteTransition);
+                    node.ConnectedOperation = operation.IsCompleted ? null : operation;
+                }
+                else
+                    Navigation.TransitionEngine.RunTransition(
+                        capturedOldControl!, capturedNewControl, transition, capturedMode, CompleteTransition);
             }
             else
             {
@@ -335,7 +372,8 @@ internal static class NavigationHostLifecycle
             }
             else if (newEl.CacheMode != Navigation.NavigationCacheMode.Disabled && node.Cache is null)
             {
-                node.Cache = new Navigation.NavigationCache(newEl.CacheSize, evicted => reconciler.UnmountChild(evicted));
+                node.Cache = new Navigation.NavigationCache(newEl.CacheSize,
+                    evicted => Navigation.ConnectedNavigationOperation.UnmountPage(reconciler, evicted));
             }
         }
         if (node.Cache is not null)

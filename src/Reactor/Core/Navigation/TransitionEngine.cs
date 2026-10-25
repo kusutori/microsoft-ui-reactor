@@ -187,11 +187,8 @@ internal static class TransitionEngine
                 RunSpringSlide(compositor, outVisual, inVisual, spring, mode);
                 break;
             case ConnectedTransition:
-                // Stub — shared-element animation isn't implemented yet, so play the platform
-                // default instead. Entrance is the right fallback: it's what the navigation would
-                // have got had no transition been requested, and unlike a slide it doesn't invent
-                // a direction or opt into the slide path's hit-test suppression.
-                global::System.Diagnostics.Debug.WriteLine("[Reactor] ConnectedTransition not yet implemented; falling back to EntranceTransition.");
+                // NavigationHost owns the shared-element lifecycle. Direct callers of
+                // this whole-page engine have no element pair; use its documented fallback.
                 RunEntrance(compositor, outVisual, inVisual, mode);
                 break;
         }
@@ -320,7 +317,7 @@ internal static class TransitionEngine
     /// <summary>
     /// Stops the animations this engine starts and returns the visual to its resting state.
     /// </summary>
-    private static void NormalizeVisual(Visual visual)
+    internal static void NormalizeVisual(Visual visual)
     {
         ReleaseAnimatedProperties(visual);
         visual.Opacity = 1;
