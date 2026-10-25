@@ -8,6 +8,44 @@ namespace Microsoft.UI.Reactor.AppTests.Host.SelfTest.Fixtures;
 
 internal static class ConnectedNavigationFixtures
 {
+    internal sealed class NestedSource(Harness h) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            using var motion = TransitionEngine.OverrideAnimationsEnabled(true);
+            var navigation = new NavigationHandle<string>(new NavigationStack<string>("main"));
+            var innerNavigation = new NavigationHandle<int>(new NavigationStack<int>(0));
+            var host = H.CreateHost();
+            host.Mount(_ => (NavigationHost(navigation, route => route == "main"
+                ? Border(NavigationHost(innerNavigation, _ => ScrollView(VStack(
+                    Border(TextBlock("Device card")).Size(100, 60).ConnectedAnimation("device")
+                        .AutomationId("nested-source-card")))))
+                : Border(VStack(TextBlock("Overlay"),
+                    Border(TextBlock("Receiver")).Size(180, 80).ConnectedAnimation("device")))) with
+            {
+                Transition = NavigationTransition.None,
+                CacheMode = NavigationCacheMode.Enabled,
+                CacheSize = 1,
+            }).AutomationId("nested-overlay-host"));
+            await Harness.Render();
+            var source = H.FindControl<Border>(b => Id(b) == "nested-source-card");
+            H.Check("ConnectedNav_NestedSourceMeasured", source is { ActualWidth: > 0, ActualHeight: > 0 });
+            var baseline = host.Reconciler.ConnectedAnimationStartCount;
+            navigation.Navigate("overlay", new() { Transition = NavigationTransition.Fade(), ConnectedAnimationKey = "device" });
+            H.Check("ConnectedNav_NestedSourceActuallyAnimates", await Harness.WaitFor(() =>
+                host.Reconciler.ConnectedAnimationStartCount == baseline + 1));
+            H.Check("ConnectedNav_NestedOverlaySettles", await Harness.WaitFor(() =>
+                H.FindControl<Grid>(g => Id(g) == "nested-overlay-host")?.Children.Count == 1, 100));
+            navigation.GoBack();
+            H.Check("ConnectedNav_NestedReturnActuallyAnimates", await Harness.WaitFor(() =>
+                host.Reconciler.ConnectedAnimationStartCount == baseline + 2));
+            H.Check("ConnectedNav_NestedReturnSettles", await Harness.WaitFor(() =>
+                H.FindControl<Grid>(g => Id(g) == "nested-overlay-host")?.Children.Count == 1, 100));
+            H.Check("ConnectedNav_NestedSourceRetainsIdentity",
+                ReferenceEquals(source, H.FindControl<Border>(b => Id(b) == "nested-source-card")));
+        }
+    }
+
     internal sealed class RoundTrip(Harness h, bool cached) : SelfTestFixtureBase(h)
     {
         public override async Task RunAsync()

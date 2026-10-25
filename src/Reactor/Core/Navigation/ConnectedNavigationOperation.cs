@@ -125,10 +125,9 @@ internal sealed class ConnectedNavigationOperation : IDisposable
         {
             var current = pending.Pop();
             if (!visited.Add(current)) continue;
-            // A nested navigation host owns a separate page/key scope.
-            if (!ReferenceEquals(current, root) && current is UIElement nested
-                && reconciler._navigationHostNodes.ContainsKey(nested))
-                continue;
+            // The selected page can contain an active nested NavigationHost
+            // (for example, a shell retained beneath a transfer overlay).
+            // Its live descendants participate; cached pages are not attached.
             if (current is UIElement element
                 && Core.Reconciler.GetElementTag(element)?.ConnectedAnimationKey is not null)
                 result.Add(element);

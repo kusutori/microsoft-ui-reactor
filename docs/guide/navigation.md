@@ -1069,7 +1069,9 @@ detail element to the restored list element; it does not replay a stale snapshot
 Serialized navigation state contains routes only, so restoring state does not
 restore animation edges.
 
-Keys are scoped to each page of the current NavigationHost. A missing or duplicate
+Keys are scoped to each page of the current NavigationHost, including the active
+descendants of nested navigation hosts. Detached cached pages do not participate.
+A missing or duplicate
 key, or a destination that does not become ready within the bounded layout wait,
 falls back to the selected page transition. Disabling system animations swaps the pages immediately.
 Virtualized/off-screen targets are not automatically scrolled into view; realize
