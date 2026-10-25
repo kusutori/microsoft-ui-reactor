@@ -6,6 +6,57 @@ namespace Microsoft.UI.Reactor.Tests;
 public class ConnectedNavigationHistoryTests
 {
     [Fact]
+    public void IndependentPageTransitionAndCardKeyTravelTogetherThroughHistory()
+    {
+        var nav = new NavigationHandle<string>(new NavigationStack<string>("list"));
+        var host = (INavigationHandle)nav;
+        var drill = NavigationTransition.DrillIn();
+        var fade = NavigationTransition.Fade(TimeSpan.FromMilliseconds(350));
+        nav.Navigate("detail", new() { Transition = drill, ConnectedAnimationKey = "first" });
+        nav.Navigate("child", new() { Transition = fade, ConnectedAnimationKey = "second" });
+        host.PendingTransitionOverride = null;
+        host.PendingConnectedAnimationKey = null;
+        Assert.True(nav.GoBack());
+        Assert.Same(fade, host.PendingTransitionOverride);
+        Assert.Equal("second", host.PendingConnectedAnimationKey);
+        Assert.True(nav.GoBack());
+        Assert.Same(drill, host.PendingTransitionOverride);
+        Assert.Equal("first", host.PendingConnectedAnimationKey);
+        Assert.True(nav.GoForward());
+        Assert.Same(drill, host.PendingTransitionOverride);
+        Assert.Equal("first", host.PendingConnectedAnimationKey);
+        Assert.True(nav.GoForward());
+        Assert.Same(fade, host.PendingTransitionOverride);
+        Assert.Equal("second", host.PendingConnectedAnimationKey);
+    }
+
+    [Fact]
+    public void IndependentOptionsRespectCancellationReplacementAndRestore()
+    {
+        var stack = new NavigationStack<string>("list");
+        var nav = new NavigationHandle<string>(stack);
+        var host = (INavigationHandle)nav;
+        nav.Navigate("detail", new() { Transition = NavigationTransition.None, ConnectedAnimationKey = "hero" });
+        stack.Guard = ctx => ctx.Cancel();
+        Assert.False(nav.Navigate("wrong", new() { Transition = NavigationTransition.Fade(), ConnectedAnimationKey = "wrong" }));
+        Assert.Null(host.PendingConnectedAnimationKey);
+        Assert.Null(host.PendingTransitionOverride);
+        stack.Guard = null;
+        Assert.True(nav.GoBack());
+        Assert.Equal("hero", host.PendingConnectedAnimationKey);
+        Assert.Same(NavigationTransition.None, host.PendingTransitionOverride);
+        Assert.True(nav.GoForward());
+        Assert.True(nav.Replace("replacement"));
+        Assert.Null(host.PendingConnectedAnimationKey);
+        Assert.True(nav.GoBack());
+        Assert.Null(host.PendingConnectedAnimationKey);
+        nav.SetState(new(["a"], "b", ["c"]));
+        Assert.True(nav.GoBack());
+        Assert.Null(host.PendingConnectedAnimationKey);
+        Assert.Null(host.PendingTransitionOverride);
+    }
+
+    [Fact]
     public void BackAndForwardRememberTheSelectedEdgeNotTheLatestKey()
     {
         var nav = new NavigationHandle<string>(new NavigationStack<string>("list"));

@@ -36,7 +36,6 @@ internal static class TransitionEngine
         Core.ElementPool.MarkCompositorTainted(incoming);
 
         var compositor = outVisual.Compositor;
-        var usesCenterPointBinding = transition is DrillInTransition;
         var suppressesHitTesting = transition is SlideTransition;
 
         // Claim both pages for this transition before anything else, on every path including
@@ -108,13 +107,7 @@ internal static class TransitionEngine
             ClearHitTestSuppression(incoming);
         }
 
-        if (usesCenterPointBinding)
-        {
-            // Expression animations are persistent, so start these before the scoped
-            // batch to keep them from blocking the transition's completion callback.
-            BindCenterPointToVisualSize(compositor, outVisual);
-            BindCenterPointToVisualSize(compositor, inVisual);
-        }
+        PrepareTransitionAnimations(compositor, outVisual, inVisual, transition);
 
         var batch = compositor.CreateScopedBatch(CompositionBatchTypes.Animation);
 
@@ -169,6 +162,23 @@ internal static class TransitionEngine
             }
         };
 
+        StartTransitionAnimations(compositor, outVisual, inVisual, transition, mode);
+        batch.End();
+    }
+
+    internal static void PrepareTransitionAnimations(
+        Compositor compositor, Visual outVisual, Visual inVisual, NavigationTransition transition)
+    {
+        if (transition is not DrillInTransition) return;
+        // Persistent expressions must not become part of a finite animation batch.
+        BindCenterPointToVisualSize(compositor, outVisual);
+        BindCenterPointToVisualSize(compositor, inVisual);
+    }
+
+    internal static void StartTransitionAnimations(
+        Compositor compositor, Visual outVisual, Visual inVisual,
+        NavigationTransition transition, NavigationMode mode)
+    {
         switch (transition)
         {
             case EntranceTransition:
@@ -191,9 +201,12 @@ internal static class TransitionEngine
                 // this whole-page engine have no element pair; use its documented fallback.
                 RunEntrance(compositor, outVisual, inVisual, mode);
                 break;
+            default:
+                // Shared-element-only navigation still swaps the surrounding pages.
+                outVisual.Opacity = 0;
+                inVisual.Opacity = 1;
+                break;
         }
-
-        batch.End();
     }
 
     // ════════════════════════════════════════════════════════════════

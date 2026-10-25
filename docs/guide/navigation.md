@@ -1051,15 +1051,19 @@ detail page ID), use a discriminated union pattern with records.
 the same handle with `UseNavigation<Route>()` (no initial value). This
 retrieves the nearest ancestor's handle via [context](context.md).
 
-**Use `NavigationTransition.DrillIn()` for list-to-detail flows without a shared element.**
+**Select page motion independently from a shared element.**
 For a shared card or image, mark the element on both pages with
 `.ConnectedAnimation(key)` and navigate with
-`new NavigateOptions { Transition = NavigationTransition.Connected(key) }`.
+`new NavigateOptions { Transition = NavigationTransition.DrillIn(), ConnectedAnimationKey = key }`.
 NavigationHost captures only the selected source before removing its page,
 waits for the destination's layout, and completes the normal page lifecycle
-after the native animation. Cached pages participate without remounting.
+after the native animation and the selected page transition have both finished.
+`Transition = null` uses the host default. Set `Transition = NavigationTransition.None`
+for shared-element motion only, or select Fade, Slide, DrillIn, or Spring explicitly.
+`NavigationTransition.Connected(key)` is also supported as shared-element-only motion.
+Cached pages participate without remounting.
 
-Per-navigation connected keys are remembered for `GoBack()` and `GoForward()`
+Per-navigation connected keys and their page transition overrides are remembered for `GoBack()` and `GoForward()`
 within the current process. Back navigation creates a new animation from the
 detail element to the restored list element; it does not replay a stale snapshot.
 Serialized navigation state contains routes only, so restoring state does not
@@ -1067,7 +1071,7 @@ restore animation edges.
 
 Keys are scoped to each page of the current NavigationHost. A missing or duplicate
 key, or a destination that does not become ready within the bounded layout wait,
-falls back to Entrance. Disabling system animations swaps the pages immediately.
+falls back to the selected page transition. Disabling system animations swaps the pages immediately.
 Virtualized/off-screen targets are not automatically scrolled into view; realize
 the desired item before navigation or accept the fallback. Do not put an additional
 exit transition on the shared element or run a separate manual connected animation

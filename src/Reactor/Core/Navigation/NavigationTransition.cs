@@ -91,7 +91,10 @@ public abstract record NavigationTransition
 
     /// <summary>
     /// Animates the element marked with the same ConnectedAnimation key on both pages.
-    /// Missing or ambiguous elements fall back to <see cref="Entrance"/>.
+    /// This selects shared-element-only motion. To compose with a page transition,
+    /// use <see cref="NavigateOptions.ConnectedAnimationKey"/> alongside
+    /// <see cref="NavigateOptions.Transition"/>. Missing or ambiguous elements
+    /// fall back to the selected page transition (an instant swap for this method).
     /// Per-navigation keys are remembered for back/forward navigation within this session.
     /// </summary>
     public static NavigationTransition Connected(string animationKey)

@@ -1,6 +1,7 @@
 using Microsoft.UI.Reactor.Core;
 using Microsoft.UI.Reactor.Navigation;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Hosting;
 using static Microsoft.UI.Reactor.Factories;
 
 namespace Microsoft.UI.Reactor.AppTests.Host.SelfTest.Fixtures;
@@ -36,11 +37,26 @@ internal static class ConnectedNavigationFixtures
                 H.Check("ConnectedNav_OutgoingSuppressionPositiveControl", !sourcePage.IsHitTestVisible);
             }
             var baseline = host.Reconciler.ConnectedAnimationStartCount;
-            nav.Navigate("detail", new() { Transition = NavigationTransition.Connected("hero") });
+            H.Check("ConnectedNav_NoPageFadeBeforeNavigation",
+                ElementCompositionPreview.GetElementVisual(sourcePage).TryGetAnimationController("Opacity") is null);
+            nav.Navigate("detail", new() { Transition = NavigationTransition.DrillIn(), ConnectedAnimationKey = "hero" });
             H.Check("ConnectedNav_ForwardNativeAnimationStarted",
                 await Harness.WaitFor(() => host.Reconciler.ConnectedAnimationStartCount == baseline + 1));
+            var forwardPages = H.FindControl<Grid>(g => Id(g) == "connected-host")!;
+            H.Check("ConnectedNav_ForwardPagesCrossfade", forwardPages.Children.Count == 2
+                && ElementCompositionPreview.GetElementVisual(forwardPages.Children[0]).TryGetAnimationController("Opacity") is not null
+                && ElementCompositionPreview.GetElementVisual(forwardPages.Children[1]).TryGetAnimationController("Opacity") is not null);
+            H.Check("ConnectedNav_FadingOutgoingPageNotInteractive", !sourcePage.IsHitTestVisible);
+            H.Check("ConnectedNav_PageDrillInDuringHeroMotion", forwardPages.Children.Count == 2 && forwardPages.Children.All(page =>
+                ElementCompositionPreview.GetElementVisual(page).TryGetAnimationController("Scale") is not null));
             H.Check("ConnectedNav_ForwardOldPageRemoved", await Harness.WaitFor(() =>
                 H.FindControl<Grid>(g => Id(g) == "connected-host")?.Children.Count == 1, 100));
+            H.Check("ConnectedNav_ForwardFadeReleased", forwardPages.Children.Count == 1
+                && ElementCompositionPreview.GetElementVisual(forwardPages.Children[0]).TryGetAnimationController("Opacity") is null
+                && ElementCompositionPreview.GetElementVisual(sourcePage).TryGetAnimationController("Opacity") is null
+                && ElementCompositionPreview.GetElementVisual(sourcePage).TryGetAnimationController("Scale") is null
+                && ElementCompositionPreview.GetElementVisual(forwardPages.Children[0]).TryGetAnimationController("Scale") is null
+                && sourcePage.IsHitTestVisible);
             if (cached)
             {
                 H.Check("ConnectedNav_OutgoingSuppressionReleased", sourcePage.IsHitTestVisible);
@@ -50,10 +66,18 @@ internal static class ConnectedNavigationFixtures
             nav.GoBack();
             H.Check("ConnectedNav_BackNativeAnimationStarted",
                 await Harness.WaitFor(() => host.Reconciler.ConnectedAnimationStartCount == baseline + 2));
+            H.Check("ConnectedNav_BackPagesCrossfade", forwardPages.Children.Count == 2
+                && forwardPages.Children.All(page =>
+                    ElementCompositionPreview.GetElementVisual(page).TryGetAnimationController("Opacity") is not null));
+            H.Check("ConnectedNav_BackPageDrillIn", forwardPages.Children.Count == 2 && forwardPages.Children.All(page =>
+                ElementCompositionPreview.GetElementVisual(page).TryGetAnimationController("Scale") is not null));
             H.Check("ConnectedNav_BackOldPageRemoved", await Harness.WaitFor(() =>
                 H.FindControl<Grid>(g => Id(g) == "connected-host")?.Children.Count == 1, 100));
             var returned = H.FindControl<Border>(b => Id(b) == "connected-list");
             H.Check("ConnectedNav_ReturnedCardUsable", returned is { IsHitTestVisible: true, ActualWidth: > 0 });
+            H.Check("ConnectedNav_BackFadeReleased", forwardPages.Children.Count == 1
+                && ElementCompositionPreview.GetElementVisual(forwardPages.Children[0]).TryGetAnimationController("Opacity") is null
+                && ElementCompositionPreview.GetElementVisual(forwardPages.Children[0]).TryGetAnimationController("Scale") is null);
             if (cached) H.Check("ConnectedNav_CacheRestoresSameCard", ReferenceEquals(source, returned));
             if (cached) H.Check("ConnectedNav_CachedPageInteractive", sourcePage.IsHitTestVisible);
             H.Check("ConnectedNav_NoDuplicateAutomaticStarts", host.Reconciler.ConnectedAnimationStartCount == baseline + 2);
@@ -87,6 +111,54 @@ internal static class ConnectedNavigationFixtures
                 H.FindControl<Border>(b => Id(b) == "fallback-hero") is { ActualHeight: 0 });
             H.Check("ConnectedNav_FallbackDoesNotLeaveSourceSnapshot",
                 Microsoft.UI.Xaml.Media.Animation.ConnectedAnimationService.GetForCurrentView().GetAnimation("hero") is null);
+        }
+    }
+
+    internal sealed class CompositionOptions(Harness h, NavigationTransition pageTransition, bool hostDefault = false) : SelfTestFixtureBase(h)
+    {
+        public override async Task RunAsync()
+        {
+            using var motion = TransitionEngine.OverrideAnimationsEnabled(true);
+            var nav = new NavigationHandle<string>(new NavigationStack<string>("list"));
+            var host = H.CreateHost();
+            host.Mount(_ => (NavigationHost(nav, route => Border(VStack(8,
+                TextBlock(route),
+                Border(TextBlock("Shared card")).Size(route == "list" ? 100 : 180, 60).ConnectedAnimation("hero")))) with
+            {
+                Transition = hostDefault ? pageTransition : NavigationTransition.None,
+            }).AutomationId("connected-options-host"));
+            await Harness.Render();
+            var pages = H.FindControl<Grid>(g => Id(g) == "connected-options-host")!;
+            H.Check("ConnectedNav_OptionsNoInitialScale",
+                ElementCompositionPreview.GetElementVisual(pages.Children[0]).TryGetAnimationController("Scale") is null);
+            var baseline = host.Reconciler.ConnectedAnimationStartCount;
+            nav.Navigate("detail", new()
+            {
+                Transition = hostDefault ? null : pageTransition,
+                ConnectedAnimationKey = "hero",
+            });
+            H.Check("ConnectedNav_OptionsNativeCardStarts", await Harness.WaitFor(() =>
+                host.Reconciler.ConnectedAnimationStartCount == baseline + 1));
+            H.Check("ConnectedNav_OptionsBothPagesPresent", pages.Children.Count == 2);
+            H.Check("ConnectedNav_OptionsPageOpacityMatchesSelection", pages.Children.All(page =>
+                (ElementCompositionPreview.GetElementVisual(page).TryGetAnimationController("Opacity") is not null)
+                == (pageTransition is not SuppressTransition)));
+            H.Check("ConnectedNav_OptionsPageScaleMatchesSelection", pages.Children.All(page =>
+                (ElementCompositionPreview.GetElementVisual(page).TryGetAnimationController("Scale") is not null)
+                == (pageTransition is DrillInTransition)));
+            H.Check("ConnectedNav_OptionsPageOffsetMatchesSelection", pages.Children.All(page =>
+                (ElementCompositionPreview.GetElementVisual(page).TryGetAnimationController("Offset") is not null)
+                == (pageTransition is SlideTransition)));
+            var oldPage = pages.Children[0];
+            H.Check("ConnectedNav_OptionsSettles", await Harness.WaitFor(() => pages.Children.Count == 1, 100));
+            H.Check("ConnectedNav_OptionsRestoresInput", oldPage.IsHitTestVisible && pages.Children[0].IsHitTestVisible);
+            H.Check("ConnectedNav_OptionsReleasesProperties", new[] { oldPage, pages.Children[0] }.All(page =>
+            {
+                var visual = ElementCompositionPreview.GetElementVisual(page);
+                return visual.TryGetAnimationController("Opacity") is null
+                    && visual.TryGetAnimationController("Scale") is null
+                    && visual.TryGetAnimationController("Offset") is null;
+            }));
         }
     }
 
@@ -168,21 +240,33 @@ internal static class ConnectedNavigationFixtures
                 // Capture before the last navigation, not after WaitForIdleAsync:
                 // a native frame may already start it during that await.
                 if (i == 4) baseline = host.Reconciler.ConnectedAnimationStartCount;
-                nav.Navigate("page" + i, new() { Transition = NavigationTransition.Connected("hero") });
+                nav.Navigate("page" + i, new() { Transition = NavigationTransition.DrillIn(), ConnectedAnimationKey = "hero" });
                 // Commit another navigation before a rendered-frame wait. This
                 // exercises cancellation of a prepared, not-yet-started snapshot.
                 await host.WaitForIdleAsync();
             }
             H.Check("ConnectedNav_InterruptedFinalAnimationStarts",
                 await Harness.WaitFor(() => host.Reconciler.ConnectedAnimationStartCount > baseline));
+            var pages = H.FindControl<Grid>(g => Id(g) == "connected-host")!;
+            var interruptedPage = pages.Children[pages.Children.Count - 1];
+            H.Check("ConnectedNav_InterruptingActiveFadePositiveControl",
+                ElementCompositionPreview.GetElementVisual(interruptedPage).TryGetAnimationController("Opacity") is not null);
+            baseline = host.Reconciler.ConnectedAnimationStartCount;
+            nav.Navigate("page5", new() { Transition = NavigationTransition.DrillIn(), ConnectedAnimationKey = "hero" });
+            H.Check("ConnectedNav_ReplacementAnimationStarts",
+                await Harness.WaitFor(() => host.Reconciler.ConnectedAnimationStartCount > baseline));
             H.Check("ConnectedNav_InterruptedLeavesOnePage", await Harness.WaitFor(() =>
                 H.FindControl<Grid>(g => Id(g) == "connected-host")?.Children.Count == 1, 100));
-            H.Check("ConnectedNav_InterruptedLatestRouteVisible", H.FindText("page4") is not null);
+            H.Check("ConnectedNav_InterruptedLatestRouteVisible", H.FindText("page5") is not null);
+            H.Check("ConnectedNav_InterruptedFadeReleased",
+                ElementCompositionPreview.GetElementVisual(interruptedPage).TryGetAnimationController("Opacity") is null
+                && ElementCompositionPreview.GetElementVisual(interruptedPage).TryGetAnimationController("Scale") is null
+                && interruptedPage.IsHitTestVisible);
             H.Check("ConnectedNav_InterruptedUnpickedAnimationNotPrepared",
                 Microsoft.UI.Xaml.Media.Animation.ConnectedAnimationService.GetForCurrentView().GetAnimation("unpicked") is null);
             nav.GoBack();
             H.Check("ConnectedNav_InterruptedBackNavigates", await Harness.WaitFor(() =>
-                H.FindText("page3") is not null
+                H.FindText("page4") is not null
                 && H.FindControl<Grid>(g => Id(g) == "connected-host")?.Children.Count == 1, 100));
         }
     }

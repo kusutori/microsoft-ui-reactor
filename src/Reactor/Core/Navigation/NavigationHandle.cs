@@ -11,6 +11,15 @@ public sealed record NavigateOptions
     public NavigationTransition? Transition { get; init; }
 
     /// <summary>
+    /// Optional key of the shared element on both pages. Independent of
+    /// <see cref="Transition"/>; use <see cref="NavigationTransition.None"/>
+    /// for shared-element motion without an accompanying page transition.
+    /// The key and explicit transition are remembered for back/forward navigation
+    /// within this session, but are not part of serialized navigation state.
+    /// </summary>
+    public string? ConnectedAnimationKey { get; init; }
+
+    /// <summary>
     /// When true (default), the current route is pushed onto the back stack.
     /// When false, the current route is replaced (no back stack entry created).
     /// </summary>
@@ -56,6 +65,7 @@ internal interface INavigationHandle
     /// during content swap to select the transition. Null means use host default.
     /// </summary>
     NavigationTransition? PendingTransitionOverride { get; set; }
+    string? PendingConnectedAnimationKey { get; set; }
 }
 
 /// <summary>
@@ -89,8 +99,8 @@ public sealed class NavigationHandle<TRoute> : INavigationHandle where TRoute : 
 {
     private readonly NavigationStack<TRoute> _stack;
     // Runtime-only edge metadata, not native controls or serialized UI state.
-    private readonly List<ConnectedTransition?> _connectedBack = new();
-    private readonly List<ConnectedTransition?> _connectedForward = new();
+    private readonly List<NavigateOptions?> _connectedBack = new();
+    private readonly List<NavigateOptions?> _connectedForward = new();
 
     // Captured at construction. UseNavigation creates the handle during render on
     // the UI thread, so this is the render/UI thread id used by the marshal gate.
@@ -142,6 +152,19 @@ public sealed class NavigationHandle<TRoute> : INavigationHandle where TRoute : 
         set => _pendingTransitionOverride = value;
     }
 
+    private string? _pendingConnectedAnimationKey;
+    string? INavigationHandle.PendingConnectedAnimationKey
+    {
+        get => _pendingConnectedAnimationKey;
+        set => _pendingConnectedAnimationKey = value;
+    }
+
+    private void SetPendingOptions(NavigateOptions? options)
+    {
+        _pendingTransitionOverride = options?.Transition;
+        _pendingConnectedAnimationKey = options?.ConnectedAnimationKey;
+    }
+
     /// <summary>The currently active route.</summary>
     public TRoute CurrentRoute => _stack.Current;
 
@@ -181,7 +204,7 @@ public sealed class NavigationHandle<TRoute> : INavigationHandle where TRoute : 
         if (IsOffUIThread && MarshalOff(nameof(Navigate), () => Navigate(route, options))) return true;
 
         var previous = _stack.Current;
-        _pendingTransitionOverride = options?.Transition;
+        SetPendingOptions(options);
         bool success;
 
         if (options is { PushToBackStack: false })
@@ -200,7 +223,8 @@ public sealed class NavigationHandle<TRoute> : INavigationHandle where TRoute : 
             success = _stack.Push(route);
             if (success)
             {
-                _connectedBack.Add(options?.Transition as ConnectedTransition);
+                _connectedBack.Add(options is { ConnectedAnimationKey: not null } or { Transition: ConnectedTransition }
+                    ? options : null);
                 _connectedForward.Clear();
                 NavigationDiagnostics.OnNavigationCompleted(previous!, route!, NavigationMode.Push);
                 Navigated?.Invoke(new NavigationEventArgs<TRoute>(route, previous, NavigationMode.Push, options));
@@ -209,7 +233,7 @@ public sealed class NavigationHandle<TRoute> : INavigationHandle where TRoute : 
         }
 
         if (!success)
-            _pendingTransitionOverride = null;
+            SetPendingOptions(null);
 
         return success;
     }
@@ -232,7 +256,7 @@ public sealed class NavigationHandle<TRoute> : INavigationHandle where TRoute : 
         if (!_stack.Pop())
             return false;
 
-        _pendingTransitionOverride = _connectedBack[^1];
+        SetPendingOptions(_connectedBack[^1]);
         _connectedForward.Add(_connectedBack[^1]);
         _connectedBack.RemoveAt(_connectedBack.Count - 1);
 
@@ -259,7 +283,7 @@ public sealed class NavigationHandle<TRoute> : INavigationHandle where TRoute : 
         if (!_stack.Forward())
             return false;
 
-        _pendingTransitionOverride = _connectedForward[^1];
+        SetPendingOptions(_connectedForward[^1]);
         _connectedBack.Add(_connectedForward[^1]);
         _connectedForward.RemoveAt(_connectedForward.Count - 1);
 
@@ -286,7 +310,7 @@ public sealed class NavigationHandle<TRoute> : INavigationHandle where TRoute : 
         if (!_stack.Replace(route))
             return false;
 
-        _pendingTransitionOverride = null;
+        SetPendingOptions(null);
         InvalidateConnectedEdges();
 
         Navigated?.Invoke(new NavigationEventArgs<TRoute>(route, previous, NavigationMode.Replace));
@@ -312,7 +336,7 @@ public sealed class NavigationHandle<TRoute> : INavigationHandle where TRoute : 
         if (!_stack.Reset(route))
             return false;
 
-        _pendingTransitionOverride = null;
+        SetPendingOptions(null);
         _connectedBack.Clear();
         _connectedForward.Clear();
 
@@ -341,7 +365,7 @@ public sealed class NavigationHandle<TRoute> : INavigationHandle where TRoute : 
             return false;
 
         var removed = previousDepth - _stack.Depth;
-        _pendingTransitionOverride = removed == 1 ? _connectedBack[^1] : null;
+        SetPendingOptions(removed == 1 ? _connectedBack[^1] : null);
         for (var i = 0; i < removed; i++)
         {
             _connectedForward.Add(_connectedBack[^1]);
@@ -411,7 +435,7 @@ public sealed class NavigationHandle<TRoute> : INavigationHandle where TRoute : 
         var previous = _stack.Current;
         _stack.RestoreState(state.BackStack, state.Current, state.ForwardStack);
 
-        _pendingTransitionOverride = null;
+        SetPendingOptions(null);
         _connectedBack.Clear();
         _connectedForward.Clear();
         for (var i = 0; i < state.BackStack.Count; i++) _connectedBack.Add(null);

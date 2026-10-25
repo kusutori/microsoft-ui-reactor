@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
+using Microsoft.UI.Composition;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Hosting;
@@ -20,6 +21,7 @@ internal sealed class ConnectedNavigationOperation : IDisposable
     private readonly UIElement _incoming;
     private readonly Action _complete;
     private readonly NavigationMode _mode;
+    private readonly NavigationTransition _pageTransition;
     private readonly string _key;
     private readonly List<UIElement> _claimed = new();
     private readonly long _generation;
@@ -29,21 +31,27 @@ internal sealed class ConnectedNavigationOperation : IDisposable
     private int _framesRemaining = 8;
     private bool _finished;
     private bool _started;
+    private bool _connectedCompleted;
+    private bool _pageAnimationCompleted;
+    private CompositionScopedBatch? _pageAnimationBatch;
     private Action? _fallbackComplete;
     internal bool IsCompleted { get; private set; }
     private static long s_nextId;
 
     internal ConnectedNavigationOperation(
         Core.Reconciler reconciler, UIElement outgoing, UIElement incoming,
-        string key, NavigationMode mode, Action complete)
+        string key, NavigationTransition pageTransition, NavigationMode mode, Action complete)
     {
         _reconciler = reconciler;
         _outgoing = outgoing;
         _incoming = incoming;
         _mode = mode;
+        _pageTransition = pageTransition;
         _key = key;
         _complete = complete;
         _generation = TransitionEngine.ClaimForTransition(outgoing, incoming);
+        Core.ElementPool.MarkCompositorTainted(outgoing);
+        Core.ElementPool.MarkCompositorTainted(incoming);
         // A previous slide/drill-in may still own compositor properties or
         // hit-test suppression on a page now reused by this navigation.
         TransitionEngine.NormalizeVisual(ElementCompositionPreview.GetElementVisual(outgoing));
@@ -188,9 +196,8 @@ internal sealed class ConnectedNavigationOperation : IDisposable
                 CompositionTarget.Rendering -= OnRendering;
                 // Completion may be synchronous when native motion is suppressed.
                 if (_finished) return;
-                // Do not run a whole-page slide/scale alongside the shared element.
-                ElementCompositionPreview.GetElementVisual(_incoming).Opacity = 1;
-                ElementCompositionPreview.GetElementVisual(_outgoing).Opacity = 0;
+                // The app selects page motion independently of the shared card.
+                StartPageAnimation();
                 return;
             }
         }
@@ -202,7 +209,43 @@ internal sealed class ConnectedNavigationOperation : IDisposable
         if (--_framesRemaining == 0) Finish(fallback: true);
     }
 
-    private void OnCompleted(ConnectedAnimation sender, object args) => Finish(fallback: false);
+    private void StartPageAnimation()
+    {
+        var outgoing = ElementCompositionPreview.GetElementVisual(_outgoing);
+        var incoming = ElementCompositionPreview.GetElementVisual(_incoming);
+        TransitionEngine.SuppressHitTesting(_outgoing);
+        if (_pageTransition is SlideTransition)
+            TransitionEngine.SuppressHitTesting(_incoming);
+        TransitionEngine.PrepareTransitionAnimations(incoming.Compositor, outgoing, incoming, _pageTransition);
+        var batch = incoming.Compositor.CreateScopedBatch(CompositionBatchTypes.Animation);
+        _pageAnimationBatch = batch;
+        batch.Completed += OnPageAnimationCompleted;
+        TransitionEngine.StartTransitionAnimations(incoming.Compositor, outgoing, incoming, _pageTransition, _mode);
+        batch.End();
+    }
+
+    private void OnPageAnimationCompleted(object sender, CompositionBatchCompletedEventArgs args)
+    {
+        ReleasePageAnimationBatch();
+        _pageAnimationCompleted = true;
+        if (_connectedCompleted) Finish(fallback: false);
+    }
+
+    private void OnCompleted(ConnectedAnimation sender, object args)
+    {
+        _connectedCompleted = true;
+        // TryStart can complete synchronously when native motion is suppressed.
+        if (!_started || _pageAnimationCompleted) Finish(fallback: false);
+    }
+
+    private void ReleasePageAnimationBatch()
+    {
+        if (_pageAnimationBatch is not { } batch) return;
+        _pageAnimationBatch = null;
+        batch.Completed -= OnPageAnimationCompleted;
+        batch.Dispose();
+    }
+
     private void OnDeadline(DispatcherQueueTimer sender, object args) => Finish(fallback: !_started);
 
     private void Finish(bool fallback)
@@ -212,6 +255,7 @@ internal sealed class ConnectedNavigationOperation : IDisposable
         CompositionTarget.Rendering -= OnRendering;
         _deadline.Stop();
         _deadline.Tick -= OnDeadline;
+        ReleasePageAnimationBatch();
         if (_animation is { } animation)
         {
             _animation = null;
@@ -227,7 +271,10 @@ internal sealed class ConnectedNavigationOperation : IDisposable
             try
             {
                 if (TransitionEngine.StillOwns(_incoming, _generation))
+                {
                     TransitionEngine.NormalizeVisual(ElementCompositionPreview.GetElementVisual(_incoming));
+                    TransitionEngine.ClearHitTestSuppression(_incoming);
+                }
                 _complete();
             }
             finally
@@ -236,14 +283,17 @@ internal sealed class ConnectedNavigationOperation : IDisposable
                 foreach (var element in _claimed) _reconciler.ReleaseNavigationConnectedElement(element);
                 _claimed.Clear();
                 if (TransitionEngine.StillOwns(_outgoing, _generation))
+                {
                     TransitionEngine.NormalizeVisual(ElementCompositionPreview.GetElementVisual(_outgoing));
+                    TransitionEngine.ClearHitTestSuppression(_outgoing);
+                }
             }
         }
 
         if (fallback)
         {
             _fallbackComplete = Complete;
-            TransitionEngine.RunTransition(_outgoing, _incoming, NavigationTransition.Entrance(), _mode, Complete);
+            TransitionEngine.RunTransition(_outgoing, _incoming, _pageTransition, _mode, Complete);
         }
         else
             Complete();

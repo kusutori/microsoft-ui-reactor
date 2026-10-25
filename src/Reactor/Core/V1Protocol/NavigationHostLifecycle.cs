@@ -183,6 +183,15 @@ internal static class NavigationHostLifecycle
             var transitionOverride = handle.PendingTransitionOverride;
             handle.PendingTransitionOverride = null;
             var transition = transitionOverride ?? node.HostTransition;
+            var connectedKey = handle.PendingConnectedAnimationKey;
+            handle.PendingConnectedAnimationKey = null;
+            // Connected(key) remains a shared-element-only transition. The
+            // independent option composes with any ordinary page transition.
+            if (transition is Navigation.ConnectedTransition connectedTransition)
+            {
+                connectedKey ??= connectedTransition.AnimationKey;
+                transition = Navigation.NavigationTransition.None;
+            }
             var mode = pendingMode ?? Navigation.NavigationMode.Push;
 
             // Resolve new child: check cache first, then mount fresh
@@ -197,7 +206,7 @@ internal static class NavigationHostLifecycle
                 newChildElement = cached.LastElement;
                 node.Cache.Remove(currentRoute);
                 wasCacheHit = true;
-                if (transition is Navigation.ConnectedTransition && newChildControl is { } cachedControl)
+                if (connectedKey is not null && newChildControl is { } cachedControl)
                 {
                     // Route payloads can change while the page is cached (for
                     // example selecting a second device for the same detail route).
@@ -262,7 +271,7 @@ internal static class NavigationHostLifecycle
             }
 
             // Determine whether to run an animated transition
-            bool useAnimation = transition is not Navigation.SuppressTransition
+            bool useAnimation = (connectedKey is not null || transition is not Navigation.SuppressTransition)
                 && oldChildControl is not null
                 && newChildControl is not null;
 
@@ -302,11 +311,11 @@ internal static class NavigationHostLifecycle
                     }
                 }
 
-                if (transition is Navigation.ConnectedTransition connected)
+                if (connectedKey is not null)
                 {
                     var operation = new Navigation.ConnectedNavigationOperation(
-                        reconciler, capturedOldControl!, capturedNewControl, connected.AnimationKey,
-                        capturedMode, CompleteTransition);
+                        reconciler, capturedOldControl!, capturedNewControl, connectedKey,
+                        transition, capturedMode, CompleteTransition);
                     node.ConnectedOperation = operation.IsCompleted ? null : operation;
                 }
                 else
