@@ -303,12 +303,13 @@ internal static class NavigationHostLifecycle
                     }
                     FinalizeOldPage(capturedOldControl, capturedOldElement, capturedOldRoute);
 
-                    if (node.TransitionGeneration == transitionGeneration)
-                    {
-                        reconciler.InvokePostNavigationLifecycle(
-                            capturedNewControl, capturedOldHooks,
-                            capturedCurrentRoute, capturedPreviousRoute, capturedMode);
-                    }
+                    // Every departed page receives its completion callback,
+                    // including when a newer navigation interrupts this edge.
+                    // Only the latest destination receives OnNavigatedTo.
+                    reconciler.InvokePostNavigationLifecycle(
+                        node.TransitionGeneration == transitionGeneration ? capturedNewControl : null,
+                        capturedOldHooks,
+                        capturedCurrentRoute, capturedPreviousRoute, capturedMode);
                 }
 
                 if (connectedKey is not null)

@@ -7263,7 +7263,9 @@ public sealed partial class Reconciler : IDisposable
 
     private void CollectLifecycleHooksRecursive(UIElement? control, List<RenderContext.NavigationLifecycleHookState> hooks)
     {
-        if (control is null) return;
+        // A nested host owns its pages' lifecycle. Its route contexts and guards
+        // belong to that stack, not the enclosing page's navigation operation.
+        if (control is null || _navigationHostNodes.ContainsKey(control)) return;
 
         if (_componentNodes.TryGetValue(control, out var node))
         {
@@ -7334,7 +7336,7 @@ public sealed partial class Reconciler : IDisposable
     /// </summary>
     internal void InvokeNavigatingFrom(UIElement? root, Navigation.NavigatingFromContext ctx)
     {
-        if (root is null) return;
+        if (root is null || _navigationHostNodes.ContainsKey(root)) return;
 
         if (_componentNodes.TryGetValue(root, out var node))
         {

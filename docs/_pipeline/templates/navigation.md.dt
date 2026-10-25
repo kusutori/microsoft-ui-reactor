@@ -126,6 +126,10 @@ Use `CanGoBack` and `CanGoForward` to enable/disable navigation buttons.
 `UseNavigationLifecycle` lets a component react to navigation events. Use it
 to load data when a page appears or save state when it disappears:
 
+Lifecycle callbacks belong to the nearest enclosing `NavigationHost`. Nested
+hosts dispatch their own route contexts and guards, independently of outer-page
+transitions such as opening an overlay around the main navigation.
+
 ```csharp snippet="navigation/lifecycle"
 ```
 
@@ -588,6 +592,9 @@ For a shared card or image, mark the element on both pages with
 NavigationHost captures only the selected source before removing its page,
 waits for the destination's layout, and completes the normal page lifecycle
 after the native animation and the selected page transition have both finished.
+The readiness deadline applies until native motion starts; playback follows the
+selected transition's duration. An interrupted page receives `onNavigatedFrom`,
+and the latest destination receives `onNavigatedTo` when its transition completes.
 `Transition = null` uses the host default. Set `Transition = NavigationTransition.None`
 for shared-element motion only, or select Fade, Slide, DrillIn, or Spring explicitly.
 `NavigationTransition.Connected(key)` is also supported as shared-element-only motion.

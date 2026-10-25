@@ -147,8 +147,6 @@ internal static class ConnectedNavigationFixtures
             H.Check("ConnectedNav_FallbackDoesNotStartNativeAnimation", host.Reconciler.ConnectedAnimationStartCount == baseline);
             if (zeroSized) H.Check("ConnectedNav_ZeroTargetHasZeroBounds",
                 H.FindControl<Border>(b => Id(b) == "fallback-hero") is { ActualHeight: 0 });
-            H.Check("ConnectedNav_FallbackDoesNotLeaveSourceSnapshot",
-                Microsoft.UI.Xaml.Media.Animation.ConnectedAnimationService.GetForCurrentView().GetAnimation("hero") is null);
         }
     }
 

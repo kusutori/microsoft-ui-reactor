@@ -316,8 +316,8 @@ page motion independently with `Transition` (for example, `NavigationTransition.
 prepares the selected source before page teardown, waits for the destination's
 layout, and runs the selected page transition alongside the shared element.
 Both animations finish before page teardown.
-The host coordinates caching and back/forward navigation. This does not rely
-on the old page unmounting. See [navigation](navigation.md#page-transitions).
+The host coordinates caching and back/forward navigation, retaining the outgoing
+page throughout the motion. See [navigation](navigation.md#page-transitions).
 
 Outside that navigation-owned path, both the source and destination elements must use the same key string. The
 animation runs automatically when the reconciler detects the transition.

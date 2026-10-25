@@ -36,6 +36,8 @@ internal sealed class ConnectedNavigationOperation : IDisposable
     private CompositionScopedBatch? _pageAnimationBatch;
     private Action? _fallbackComplete;
     internal bool IsCompleted { get; private set; }
+    internal string? NativeAnimationKey { get; private set; }
+    internal CompositionScopedBatch? PageAnimationBatch => _pageAnimationBatch;
     private static long s_nextId;
 
     internal ConnectedNavigationOperation(
@@ -99,6 +101,7 @@ internal sealed class ConnectedNavigationOperation : IDisposable
             ElementCompositionPreview.GetElementVisual(source);
             Core.ElementPool.MarkCompositorTainted(source);
             _animation = ConnectedAnimationService.GetForCurrentView().PrepareToAnimate(nativeKey, source);
+            NativeAnimationKey = nativeKey;
             _animation.Configuration = mode == NavigationMode.Pop
                 ? new DirectConnectedAnimationConfiguration()
                 : new GravityConnectedAnimationConfiguration();
@@ -191,9 +194,12 @@ internal sealed class ConnectedNavigationOperation : IDisposable
                     return;
                 }
                 _started = true;
+                // The deadline bounds target readiness. Playback is governed by
+                // the native animation and the app-selected page motion.
+                _deadline.Stop();
                 _reconciler.ConnectedAnimationStartCount++;
                 CompositionTarget.Rendering -= OnRendering;
-                // Completion may be synchronous when native motion is suppressed.
+                // Disposal can run reentrantly from native event handlers.
                 if (_finished) return;
                 // The app selects page motion independently of the shared card.
                 StartPageAnimation();
@@ -233,8 +239,9 @@ internal sealed class ConnectedNavigationOperation : IDisposable
     private void OnCompleted(ConnectedAnimation sender, object args)
     {
         _connectedCompleted = true;
-        // TryStart can complete synchronously when native motion is suppressed.
-        if (!_started || _pageAnimationCompleted) Finish(fallback: false);
+        // TryStart can complete synchronously. Page motion still gets to start
+        // and participates in the same two-part completion barrier.
+        if (_pageAnimationCompleted) Finish(fallback: false);
     }
 
     private void ReleasePageAnimationBatch()
@@ -245,7 +252,10 @@ internal sealed class ConnectedNavigationOperation : IDisposable
         batch.Dispose();
     }
 
-    private void OnDeadline(DispatcherQueueTimer sender, object args) => Finish(fallback: !_started);
+    private void OnDeadline(DispatcherQueueTimer sender, object args)
+    {
+        if (!_started) Finish(fallback: true);
+    }
 
     private void Finish(bool fallback)
     {
