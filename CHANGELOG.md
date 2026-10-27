@@ -385,6 +385,43 @@ Conventions for contributors:
   built-in COM marshalling. Worker calls use a balanced explicit COM apartment scope and
   release transaction-owned interfaces deterministically. See the
   [Jump list guide](docs/guide/windows.md#jump-list) (spec 036 §11.3).
+
+- **A conditional child no longer shifts its unkeyed siblings** (issue #1423). The
+  container factories drop `null` / `Empty()` arguments and flatten `Group(...)`, so
+  toggling `cond ? X : Empty()` moved every later sibling down one index and the
+  positional reconcile compared it with the child that used to sit there: a sibling of
+  another type remounted (its state reset) and one of the same type took over its
+  neighbour's state. The factories now record each child's argument slot and unkeyed
+  children are matched by slot, as React treats `null`. A child whose argument slot
+  changes is now a different child (`a ? X() : Empty(), a ? Empty() : X()` remounts
+  `X`). Containers with a keyed child keep keyed matching. Re-rendering while a child's
+  exit transition is still playing also no longer pairs its siblings with the wrong control.
+
+- **`ListView<T>` / `GridView<T>` rows are unmounted when WinUI drops their container
+  without recycling it** (issue #1423). Under fast insert / remove churn WinUI could park
+  a container offscreen, unlinked from any item, without raising the recycle
+  `ContainerContentChanging`, so the row's components stayed mounted: their effects never
+  cleaned up, and a `ReactorDiagnostics.TrySetState` on one was accepted but never rendered.
+
+- **`REACTOR_A11Y_001` no longer flags text buttons with a non-literal string label**
+  (spec 006 §6.3). `Button(S("Usage_Refresh"), onClick)` — a localized resource lookup,
+  a `string` variable, or an interpolated string — was reported as an icon-only button
+  needing `.AutomationName(...)` because only string *literals* were recognised as text
+  content. The analyzer now also skips any first argument whose semantic type is (or
+  implicitly converts to) `string`; element/icon content still reports. Icon-glyph or
+  emoji *strings* remain the runtime `AccessibilityScanner` A11Y_001 check's job, as
+  string literals already were.
+
+- **`REACTOR_DSL_001` no longer asks for a key on a `Select` that projects values, not
+  elements** (spec 042). A `Select` passed into a layout factory was flagged whatever it
+  produced, so `Grid(days.Select(_ => GridSize.Star()).ToArray(), rows, …)`, which builds
+  column definitions, raised a missing-`.WithKey()` warning with nothing to key. After the
+  cheap syntactic gates the rule now checks the projection's type and skips anything that
+  is not a `Microsoft.UI.Reactor.Core.Element`. It counts the type a body converts to
+  (`ForEach`'s `Func<T, Element>`) and `where T : Element` constraints, so those
+  projections still report. An unresolved type keeps the old verdict, so broken code
+  still reports.
+
 - **Source-map generator no longer fails under `dotnet watch`** (issue #1404, spec 010).
   When Reactor is a project reference, Hot Reload's workspace compilation sees Reactor's
   symbols with their source, so a component calling a hook that is not on `Component`
