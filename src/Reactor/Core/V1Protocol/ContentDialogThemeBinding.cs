@@ -35,6 +35,13 @@ internal sealed class ContentDialogThemeBinding : IDisposable
     // when an ancestor later changes; nor re-run arbitrary setters from an event.
     internal void ApplySetters(ContentDialogElement element)
     {
+        if (element.Setters.Length == 0)
+        {
+            _setterOverride = false;
+            ApplyTheme(_requestedTheme ?? _anchor.ActualTheme);
+            return;
+        }
+
         // A write of the same value is still an explicit override. Value-change
         // notifications cannot distinguish that from a setter that never wrote.
         _dialog.ClearValue(FrameworkElement.RequestedThemeProperty);

@@ -33,6 +33,36 @@ internal sealed class ContentDialogThemeFixture(Harness h) : SelfTestFixtureBase
             // the app fallback cannot pass the default-inheritance assertion.
             await CheckTheme("InheritsAtDeferredOpen", opposite);
 
+            var themeChanges = 0;
+            var themeToken = mounted.RegisterPropertyChangedCallback(
+                FrameworkElement.RequestedThemeProperty, (_, _) => themeChanges++);
+            try
+            {
+                // Prove the observer catches real theme writes before using a
+                // zero count to detect unnecessary clear-and-restore work.
+                mounted.RequestedTheme = appTheme;
+                mounted.RequestedTheme = opposite;
+                H.Check("DialogTheme_ThemeWriteObserverPositiveControl", themeChanges == 2);
+                themeChanges = 0;
+
+                state = state with { ButtonEnabled = false };
+                setState!(state);
+                await Harness.Render();
+                H.Check("DialogTheme_NoSetterRenderUpdatesDialog", !mounted.IsPrimaryButtonEnabled);
+                H.Check("DialogTheme_NoSetterRenderKeepsThemeStable", themeChanges == 0
+                    && mounted.RequestedTheme == opposite);
+
+                state = state with { ButtonEnabled = true };
+                setState(state);
+                await Harness.Render();
+                H.Check("DialogTheme_RepeatedNoSetterRenderKeepsThemeStable", themeChanges == 0
+                    && mounted.IsPrimaryButtonEnabled && mounted.RequestedTheme == opposite);
+            }
+            finally
+            {
+                mounted.UnregisterPropertyChangedCallback(FrameworkElement.RequestedThemeProperty, themeToken);
+            }
+
             state = state with { ParentTheme = appTheme };
             setState!(state);
             await Harness.Render();
