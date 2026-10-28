@@ -31,8 +31,7 @@ internal sealed class ConnectedNavigationOperation : IDisposable
     private int _framesRemaining = 8;
     private bool _finished;
     private bool _started;
-    private bool _connectedCompleted;
-    private bool _pageAnimationCompleted;
+    private ConnectedNavigationCompletion _completion;
     private CompositionScopedBatch? _pageAnimationBatch;
     private Action? _fallbackComplete;
     internal bool IsCompleted { get; private set; }
@@ -232,16 +231,14 @@ internal sealed class ConnectedNavigationOperation : IDisposable
     private void OnPageAnimationCompleted(object sender, CompositionBatchCompletedEventArgs args)
     {
         ReleasePageAnimationBatch();
-        _pageAnimationCompleted = true;
-        if (_connectedCompleted) Finish(fallback: false);
+        if (_completion.CompletePage()) Finish(fallback: false);
     }
 
     private void OnCompleted(ConnectedAnimation sender, object args)
     {
-        _connectedCompleted = true;
         // TryStart can complete synchronously. Page motion still gets to start
         // and participates in the same two-part completion barrier.
-        if (_pageAnimationCompleted) Finish(fallback: false);
+        if (_completion.CompleteConnected()) Finish(fallback: false);
     }
 
     private void ReleasePageAnimationBatch()

@@ -10,7 +10,7 @@ namespace Microsoft.UI.Reactor.AppTests.Host.SelfTest.Fixtures;
 
 internal static class ConnectedNavigationCompletionFixtures
 {
-    internal sealed class CompletionOrder(Harness h, bool longPage) : SelfTestFixtureBase(h)
+    internal sealed class CompletionOrder(Harness h, bool longPage, bool shortNative = false) : SelfTestFixtureBase(h)
     {
         public override async Task RunAsync()
         {
@@ -24,7 +24,7 @@ internal static class ConnectedNavigationCompletionFixtures
             var target = H.FindControl<Border>(b => Id(b) == "completion-target")!;
             var service = ConnectedAnimationService.GetForCurrentView();
             var savedDuration = service.DefaultDuration;
-            service.DefaultDuration = TimeSpan.FromMilliseconds(1600);
+            service.DefaultDuration = TimeSpan.FromMilliseconds(shortNative ? 1 : 1600);
             try
             {
                 var completions = 0;
@@ -35,8 +35,9 @@ internal static class ConnectedNavigationCompletionFixtures
                 var native = service.GetAnimation(operation.NativeAnimationKey!);
                 H.Check("ConnectedNav_CompletionSnapshotPositiveControl", native is not null);
                 if (native is null) return;
-                // Basic uses the service's configurable duration, allowing each
-                // real completion order to be exercised deterministically.
+                // Basic respects DefaultDuration, but WinUI reduces native motion
+                // to 1ms when Windows animations are disabled (e.g. CI runners).
+                // Reactor's override above only controls Reactor's own motion.
                 native.Configuration = new BasicConnectedAnimationConfiguration();
                 var nativeCompleted = false;
                 native.Completed += OnNativeCompleted;
@@ -61,23 +62,15 @@ internal static class ConnectedNavigationCompletionFixtures
                     }
                     else
                     {
-                        var pageBatch = operation.PageAnimationBatch;
-                        var pageCompleted = false;
-                        void OnPageCompleted(object _, Microsoft.UI.Composition.CompositionBatchCompletedEventArgs args) => pageCompleted = true;
-                        if (pageBatch is not null) pageBatch.Completed += OnPageCompleted;
-                        try
-                        {
-                            H.Check("ConnectedNav_PageCompletesFirst", pageBatch is not null
-                                && await Harness.WaitFor(() => pageCompleted, 70, 5) && !nativeCompleted);
-                            H.Check("ConnectedNav_WaitsForNativeMotion", completions == 0 && !operation.IsCompleted);
-                        }
-                        finally
-                        {
-                            // The operation disposes a completed batch, which
-                            // releases its native subscriptions as well.
-                            if (pageBatch is not null && ReferenceEquals(operation.PageAnimationBatch, pageBatch))
-                                pageBatch.Completed -= OnPageCompleted;
-                        }
+                        H.Check("ConnectedNav_PageMotionCompletes", await Harness.WaitFor(() =>
+                            operation.PageAnimationBatch is null, 70, 5));
+                        // Observe the actual native order instead of imposing a
+                        // duration assumption on the machine's accessibility settings.
+                        // Both orders are also covered deterministically by the
+                        // completion barrier's unit tests.
+                        H.Check("ConnectedNav_PageCompletionRespectsNativeMotion", nativeCompleted
+                            ? completions == 1 && operation.IsCompleted
+                            : completions == 0 && !operation.IsCompleted);
                     }
 
                     H.Check("ConnectedNav_CompletesAfterBothMotions", await Harness.WaitFor(() =>
