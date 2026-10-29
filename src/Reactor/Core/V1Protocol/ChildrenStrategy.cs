@@ -292,7 +292,7 @@ public sealed record TemplatedItems<TItem, TElement, TControl>(
         var typedEl = (TElement)element;
         var typedCtrl = (TControl)control;
         var items = GetItems(typedEl);
-        reconciler.BindKeyedItemsSource(typedCtrl, items, KeySelector, BuildItemView, requestRerender, isMount);
+        reconciler.BindKeyedItemsSource(typedCtrl, items, KeySelector, BuildItemView, requestRerender, isMount, element);
     }
 }
 
