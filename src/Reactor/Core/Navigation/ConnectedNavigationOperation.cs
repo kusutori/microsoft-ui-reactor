@@ -32,6 +32,8 @@ internal sealed class ConnectedNavigationOperation : IDisposable
     private bool _finished;
     private bool _started;
     private ConnectedNavigationCompletion _completion;
+    private TransitionEngine.HitTestSuppression? _outgoingSuppression;
+    private TransitionEngine.HitTestSuppression? _incomingSuppression;
     private CompositionScopedBatch? _pageAnimationBatch;
     private Action? _fallbackComplete;
     internal bool IsCompleted { get; private set; }
@@ -217,9 +219,9 @@ internal sealed class ConnectedNavigationOperation : IDisposable
     {
         var outgoing = ElementCompositionPreview.GetElementVisual(_outgoing);
         var incoming = ElementCompositionPreview.GetElementVisual(_incoming);
-        TransitionEngine.SuppressHitTesting(_outgoing);
+        _outgoingSuppression = TransitionEngine.SuppressHitTesting(_outgoing);
         if (_pageTransition is SlideTransition)
-            TransitionEngine.SuppressHitTesting(_incoming);
+            _incomingSuppression = TransitionEngine.SuppressHitTesting(_incoming);
         TransitionEngine.PrepareTransitionAnimations(incoming.Compositor, outgoing, incoming, _pageTransition);
         var batch = incoming.Compositor.CreateScopedBatch(CompositionBatchTypes.Animation);
         _pageAnimationBatch = batch;
@@ -279,8 +281,8 @@ internal sealed class ConnectedNavigationOperation : IDisposable
                 if (TransitionEngine.StillOwns(_incoming, _generation))
                 {
                     TransitionEngine.NormalizeVisual(ElementCompositionPreview.GetElementVisual(_incoming));
-                    TransitionEngine.ClearHitTestSuppression(_incoming);
                 }
+                TransitionEngine.RestoreHitTesting(_incoming, _incomingSuppression);
                 _complete();
             }
             finally
@@ -288,10 +290,10 @@ internal sealed class ConnectedNavigationOperation : IDisposable
                 // Finalize/unmount while the modifier path is still suppressed.
                 foreach (var element in _claimed) _reconciler.ReleaseNavigationConnectedElement(element);
                 _claimed.Clear();
+                TransitionEngine.RestoreHitTesting(_outgoing, _outgoingSuppression);
                 if (TransitionEngine.StillOwns(_outgoing, _generation))
                 {
                     TransitionEngine.NormalizeVisual(ElementCompositionPreview.GetElementVisual(_outgoing));
-                    TransitionEngine.ClearHitTestSuppression(_outgoing);
                 }
             }
         }

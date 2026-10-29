@@ -198,21 +198,61 @@ internal static class ConnectedNavigationFixtures
         }
     }
 
-    internal sealed class Teardown(Harness h) : SelfTestFixtureBase(h)
+    internal sealed class Teardown(Harness h, bool prepared = false) : SelfTestFixtureBase(h)
     {
         public override async Task RunAsync()
         {
             using var motion = TransitionEngine.OverrideAnimationsEnabled(true);
             var nav = new NavigationHandle<string>(new NavigationStack<string>("a"));
             var host = H.CreateHost();
-            host.Mount(_ => NavigationHost(nav, route => Border(TextBlock(route))
-                .Size(100, 60).ConnectedAnimation("hero")) with { Transition = NavigationTransition.None });
+            var root = (NavigationHost(nav, route => Border(Border(TextBlock(route))
+                .Size(100, 60).ConnectedAnimation("hero"))) with { Transition = NavigationTransition.None })
+                .AutomationId("teardown-host");
+            host.Mount(_ => root);
             await Harness.Render();
-            nav.Navigate("b", new() { Transition = NavigationTransition.Connected("hero") });
-            await host.WaitForIdleAsync();
-            host.Mount(_ => TextBlock("Host replaced"));
+            var pages = H.FindControl<Grid>(g => Id(g) == "teardown-host")!;
+            var source = pages.Children[0];
+            var baseline = host.Reconciler.ConnectedAnimationStartCount;
+            nav.Navigate("b", new()
+            {
+                ConnectedAnimationKey = "hero",
+                Transition = NavigationTransition.Fade(TimeSpan.FromSeconds(2)),
+            });
+            // Execute the normal reconciler update synchronously so we can retain
+            // the prepared snapshot before the compositor gets its first frame.
+            host.Reconciler.UpdateChild(root, root with { CacheSize = 2 }, pages, () => { });
+            var operation = host.Reconciler._navigationHostNodes[pages].ConnectedOperation;
+            var key = operation?.NativeAnimationKey;
+            var snapshot = key is null ? null : Microsoft.UI.Xaml.Media.Animation.ConnectedAnimationService
+                .GetForCurrentView().GetAnimation(key);
+            H.Check("ConnectedNav_TeardownOwnsPendingSnapshot", operation is { IsCompleted: false } && snapshot is not null);
+            if (operation is null || snapshot is null) return;
+            var destination = pages.Children[1];
+            if (!prepared)
+            {
+                H.Check("ConnectedNav_TeardownInterruptsNativeMotion", await Harness.WaitFor(() =>
+                    host.Reconciler.ConnectedAnimationStartCount == baseline + 1));
+                H.Check("ConnectedNav_TeardownMotionAndInputPositiveControl", !operation.IsCompleted && !source.IsHitTestVisible
+                    && ElementCompositionPreview.GetElementVisual(destination).TryGetAnimationController("Opacity") is not null);
+            }
+            else
+                H.Check("ConnectedNav_TeardownSnapshotNotYetStarted", host.Reconciler.ConnectedAnimationStartCount == baseline);
+            host.Mount(_ => VStack(TextBlock("Host replaced"), Border(TextBlock("Probe target"))
+                .Size(150, 70).AutomationId("teardown-probe")));
             await Harness.Render();
             H.Check("ConnectedNav_TeardownReplacementRemainsVisible", H.FindText("Host replaced") is not null);
+            H.Check("ConnectedNav_TeardownCompletesOperation", operation.IsCompleted);
+            H.Check("ConnectedNav_TeardownRestoresInputAndVisuals", source.IsHitTestVisible && destination.IsHitTestVisible
+                && new[] { source, destination }.All(page =>
+                    ElementCompositionPreview.GetElementVisual(page).TryGetAnimationController("Opacity") is null));
+            if (prepared)
+            {
+                var target = H.FindControl<Border>(b => Id(b) == "teardown-probe")!;
+                H.Check("ConnectedNav_TeardownCancelProbeIsMeasured", target is { ActualWidth: > 0, ActualHeight: > 0 });
+                var restarted = snapshot.TryStart(target);
+                H.Check("ConnectedNav_TeardownCancelsSnapshot", !restarted);
+                if (restarted) snapshot.Cancel();
+            }
             await Harness.Render(250);
             H.Check("ConnectedNav_TeardownNoLatePageRestore", H.FindText("Host replaced") is not null && H.FindText("b") is null);
         }

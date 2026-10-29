@@ -155,8 +155,20 @@ internal static class NavigationHostLifecycle
         {
             // Route changed — transition from old page to new page.
             var transitionGeneration = ++node.TransitionGeneration;
-            node.ConnectedOperation?.Dispose();
+            // Disposal runs departure callbacks synchronously. Consume this
+            // navigation's options first so a callback's redirect keeps its own
+            // pending state for the next render pass.
+            var pendingMode = node.PendingNavigationMode;
+            var pendingPreviousRoute = node.PendingPreviousRoute;
+            var transitionOverride = handle.PendingTransitionOverride;
+            var connectedKey = handle.PendingConnectedAnimationKey;
+            node.PendingNavigationMode = null;
+            node.PendingPreviousRoute = null;
+            handle.PendingTransitionOverride = null;
+            handle.PendingConnectedAnimationKey = null;
+            var interruptedOperation = node.ConnectedOperation;
             node.ConnectedOperation = null;
+            interruptedOperation?.Dispose();
             // Lifecycle sequence per spec:
             //   1. onNavigatingFrom (already done by LifecycleGuard before stack mutation)
             //   2-3. Stack mutation (already done)
@@ -169,10 +181,6 @@ internal static class NavigationHostLifecycle
             var oldChildControl = node.CurrentChildControl;
             var oldChildElement = node.CurrentChildElement;
             var previousRoute = node.LastRenderedRoute;
-            var pendingMode = node.PendingNavigationMode;
-            var pendingPreviousRoute = node.PendingPreviousRoute;
-            node.PendingNavigationMode = null;
-            node.PendingPreviousRoute = null;
 
             // Collect lifecycle hooks from old page BEFORE detach/unmount
             var oldHooks = pendingMode is not null
@@ -180,11 +188,7 @@ internal static class NavigationHostLifecycle
                 : null;
 
             // Resolve transition: per-navigation override > host default
-            var transitionOverride = handle.PendingTransitionOverride;
-            handle.PendingTransitionOverride = null;
             var transition = transitionOverride ?? node.HostTransition;
-            var connectedKey = handle.PendingConnectedAnimationKey;
-            handle.PendingConnectedAnimationKey = null;
             // Connected(key) remains a shared-element-only transition. The
             // independent option composes with any ordinary page transition.
             if (transition is Navigation.ConnectedTransition connectedTransition)

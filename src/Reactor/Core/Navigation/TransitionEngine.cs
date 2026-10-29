@@ -90,10 +90,12 @@ internal static class TransitionEngine
         inVisual.Offset = Vector3.Zero;
         inVisual.Scale = Vector3.One;
 
+        HitTestSuppression? outgoingSuppression = null;
+        HitTestSuppression? incomingSuppression = null;
         if (suppressesHitTesting)
         {
-            SuppressHitTesting(outgoing);
-            SuppressHitTesting(incoming);
+            outgoingSuppression = SuppressHitTesting(outgoing);
+            incomingSuppression = SuppressHitTesting(incoming);
         }
         else
         {
@@ -125,10 +127,10 @@ internal static class TransitionEngine
             }
             if (suppressesHitTesting)
             {
-                // Nest-aware by depth, so this is safe to run even for a page a newer
-                // transition has taken over — it only restores once the last one finishes.
-                RestoreHitTesting(outgoing);
-                RestoreHitTesting(incoming);
+                // Release only the entries this transition acquired. A newer
+                // navigation may have cleared them and installed replacements.
+                RestoreHitTesting(outgoing, outgoingSuppression);
+                RestoreHitTesting(incoming, incomingSuppression);
             }
 
             try
@@ -381,7 +383,7 @@ internal static class TransitionEngine
     //  unclickable.
     // ════════════════════════════════════════════════════════════════
 
-    private sealed class HitTestSuppression
+    internal sealed class HitTestSuppression
     {
         public bool OriginalValue;
         public int Depth;
@@ -390,27 +392,26 @@ internal static class TransitionEngine
     private static readonly global::System.Runtime.CompilerServices.ConditionalWeakTable<UIElement, HitTestSuppression>
         _hitTestSuppressions = new();
 
-    internal static void SuppressHitTesting(UIElement element)
+    internal static HitTestSuppression SuppressHitTesting(UIElement element)
     {
-        if (_hitTestSuppressions.TryGetValue(element, out var existing))
+        if (!_hitTestSuppressions.TryGetValue(element, out var state))
         {
-            existing.Depth++;
-        }
-        else
-        {
-            _hitTestSuppressions.Add(element, new HitTestSuppression
+            state = new HitTestSuppression
             {
                 OriginalValue = element.IsHitTestVisible,
-                Depth = 1,
-            });
+            };
+            _hitTestSuppressions.Add(element, state);
         }
 
+        state.Depth++;
         element.IsHitTestVisible = false;
+        return state;
     }
 
-    internal static void RestoreHitTesting(UIElement element)
+    internal static void RestoreHitTesting(UIElement element, HitTestSuppression? expected)
     {
-        if (!_hitTestSuppressions.TryGetValue(element, out var state)) return;
+        if (!_hitTestSuppressions.TryGetValue(element, out var state)
+            || !ReferenceEquals(state, expected)) return;
 
         if (--state.Depth > 0) return;
 
@@ -423,7 +424,7 @@ internal static class TransitionEngine
     /// from before the first suppression. Used by the instant-swap path: those navigations must
     /// leave both pages interactive immediately, even when an older animated transition still
     /// holds a claim. A later <see cref="RestoreHitTesting"/> from that transition is then a
-    /// no-op, since the entry is gone.
+    /// no-op, since its entry has been invalidated, even if a newer one exists.
     /// </summary>
     internal static void ClearHitTestSuppression(UIElement element)
     {
